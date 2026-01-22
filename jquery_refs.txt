@@ -1,0 +1,7 @@
+./config/configuracion_estilos.php
+./config/configuracion_estilos_raiz.php
+./config/configuracion_js.php
+./config/configuracion_js_raiz.php
+./index.php
+./recuperar_contrasena.php
+./recuperar_contrasena_confirmar.php

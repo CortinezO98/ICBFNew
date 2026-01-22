@@ -1,0 +1,252 @@
+<?php
+    //Validación de permisos del usuario para el módulo
+    $modulo_plataforma="Administrador";
+
+	require_once("../config/validaciones_seguridad.php");
+    require_once("../config/conexion_db.php");
+
+    /*DEFINICIÓN DE VARIABLES*/
+
+    $titulo_header = "Gestión Usuarios";
+    $pagina=validar_input($_GET['pagina']);
+
+    unset($_SESSION['registro_creado']);
+    unset($_SESSION['registro_actualizado_supervisor']);
+    unset($_SESSION['registro_actualizado_campania']);
+    unset($_SESSION['registro_actualizado_estado']);
+
+    // Inicializa variable tipo array
+    $data_consulta=array();
+    
+    // Ejemplo filtro campo buscar GTO
+    if (isset($_POST["filtro"])) {
+        $pagina=1;
+        $filtro_permanente=validar_input($_POST['id_filtro']);
+    } else {
+        $filtro_permanente=validar_input($_GET['id']);
+    }
+
+    // Configuracón Paginación
+    $registros_x_pagina=50;
+    $iniciar_pagina=($pagina-1)*$registros_x_pagina;
+
+    // Valida que filtro se deba ejecutar
+    if ($filtro_permanente!="null" AND $filtro_permanente!="") {
+        $filtro_buscar="AND (`usu_id` LIKE ? OR `usu_acceso` LIKE ? OR `usu_nombres_apellidos` LIKE ? OR `usu_correo_corporativo` LIKE ? OR `usu_fecha_incorporacion` LIKE ? OR TCA.`ac_nombre_campania` LIKE ? OR `usu_usuario_red` LIKE ? OR `usu_cargo_rol` LIKE ? OR TS.`au_nombre_ubicacion` LIKE ? OR `usu_estado` LIKE ? OR TC.`ciu_departamento` LIKE ? OR TC.`ciu_municipio` LIKE ?)";
+
+        //Contar catidad de variables a filtrar
+        $cantidad_filtros=count(explode('?', $filtro_buscar))-1;
+
+        //Agregar catidad de variables a filtrar a data consulta
+        for ($i=0; $i < $cantidad_filtros; $i++) { 
+            array_push($data_consulta, "%$filtro_permanente%");//Se agrega llave por ser variable evaluada en un like
+        }
+    }
+
+    // Prepara string a ejecutar en sentencia preparada
+    $consulta_contar_string="SELECT COUNT(`usu_id`) FROM `tb_administrador_usuario` LEFT JOIN `tb_administrador_ciudades` AS TC ON `tb_administrador_usuario`.`usu_ciudad`=TC.`ciu_codigo` LEFT JOIN `tb_administrador_ubicacion` AS TS ON `tb_administrador_usuario`.`usu_sede`=TS.`au_id` LEFT JOIN `tb_administrador_campania` AS TCA ON `tb_administrador_usuario`.`usu_campania`=TCA.`ac_id` WHERE 1=1 AND `usu_id`<>'1111111111' ".$filtro_buscar."";
+
+    // Agrega string a sentencia preparada
+    $consulta_contar_registros = $enlace_db->prepare($consulta_contar_string);
+    if (count($data_consulta)>0) {
+        // Agrega variables a sentencia preparada según cantidad de variables agregadas a array data_consulta en el orden específico de los parámetros de la sentencia preparada
+        $consulta_contar_registros->bind_param(str_repeat("s", count($data_consulta)), ...$data_consulta);
+    }
+    // Ejecuta sentencia preparada
+    $consulta_contar_registros->execute();
+    // Obtiene array resultado de ejecución sentencia preparada
+    $resultado_registros_contar = $consulta_contar_registros->get_result()->fetch_all(MYSQLI_NUM);
+    $registros_cantidad_total = $resultado_registros_contar[0][0];
+    //Cálculo número de páginas 
+    $numero_paginas=ceil($registros_cantidad_total/$registros_x_pagina);
+
+    if (!isset($_GET['pagina']) || ($pagina>$numero_paginas AND $numero_paginas>0) || $pagina<=0) {
+        header('Location:gestion_usuarios.php?pagina=1&id=null');
+    }
+
+    //Agregar pagina a array data_consulta
+    array_push($data_consulta, $iniciar_pagina);
+    array_push($data_consulta, $registros_x_pagina);
+
+    $consulta_string="SELECT `usu_id`, `usu_acceso`, `usu_nombres_apellidos`, `usu_correo_corporativo`, `usu_fecha_incorporacion`, TCA.`ac_nombre_campania`, `usu_usuario_red`, `usu_cargo_rol`, TS.`au_nombre_ubicacion`, `usu_estado`, TC.`ciu_departamento`, TC.`ciu_municipio`, `usu_piloto` FROM `tb_administrador_usuario` LEFT JOIN `tb_administrador_ciudades` AS TC ON `tb_administrador_usuario`.`usu_ciudad`=TC.`ciu_codigo` LEFT JOIN `tb_administrador_ubicacion` AS TS ON `tb_administrador_usuario`.`usu_sede`=TS.`au_id` LEFT JOIN `tb_administrador_campania` AS TCA ON `tb_administrador_usuario`.`usu_campania`=TCA.`ac_id` WHERE 1=1 AND `usu_id`<>'1111111111' ".$filtro_buscar." ORDER BY `usu_nombres_apellidos` LIMIT ?,?";
+
+    $consulta_registros = $enlace_db->prepare($consulta_string);
+    if (count($data_consulta)>0) {
+        $consulta_registros->bind_param(str_repeat("s", count($data_consulta)), ...$data_consulta);
+    }
+    $consulta_registros->execute();
+    $resultado_registros = $consulta_registros->get_result()->fetch_all(MYSQLI_NUM);
+    
+?>
+<!DOCTYPE html>
+<html lang="ES">
+<head>
+	<?php
+        include("../config/configuracion_estilos.php");
+    ?>
+</head>
+<body onresize="tabla_fixed();" onload="tabla_fixed();">
+    <?php
+        include("../menu_principal.php");
+        include("../menu_header.php");
+    ?>
+    <div class="contenido">
+        <div class="row" id="elemento_1">
+            <div class="col-md-3 py-2">
+                <form name="filtrado" action="" method="POST">
+                    <div class="input-group">
+                      <input type="text" name="id_filtro" value='<?php if (isset($_POST["filtro"])) { echo $_POST['id_filtro']; } else {if($filtro_permanente!="null"){echo $filtro_permanente;}} ?>' placeholder="Búsqueda" class="form-control" required autofocus>
+                      <span class="input-group-btn">
+                        <button class="btn btn-corp" type="submit" name="filtro"><span class="fas fa-search"></span></button>
+                        <a href="gestion_usuarios.php?pagina=1&id=null" class="btn btn-corp"><span class="fas fa-sync-alt"></span></a>
+                      </span>
+                    </div>
+                </form>
+            </div>
+            <div class="col-md-9 py-2">
+                <?php if($perfil_modulo=="Administrador" OR $perfil_modulo=="Gestor"): ?>
+                    <a href="gestion_usuarios_crear.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>" class="btn btn-corp menu float-right"><div class="float-left"><span class="fas fa-plus"></span></div><div class="pl-2 menu_res float-left">Crear Usuario</div></a>
+                    <a href="gestion_usuarios_editar_campania.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>" class="btn btn-corp menu float-right"><div class="float-left"><span class="fas fa-sync-alt"></span></div><div class="pl-2 menu_res float-left">Campaña</div></a>
+                    <a href="gestion_usuarios_editar_supervisor.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>" class="btn btn-corp menu float-right"><div class="float-left"><span class="fas fa-sync-alt"></span></div><div class="pl-2 menu_res float-left">Supervisor</div></a>
+                    <a href="gestion_usuarios_editar_estado.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>" class="btn btn-corp menu float-right"><div class="float-left"><span class="fas fa-sync-alt"></span></div><div class="pl-2 menu_res float-left">Estado</div></a>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="row" id="tabla_fixed">
+            <div class="col-md-12">
+                <?php if ($registros_cantidad_total>0): ?>
+                    <div class="col-md-7 float-left">
+                        <!-- sub menú (cambiar a col-md-5 a paginacion) -->
+                    </div>
+                    <div class="col-md-12 float-left">
+                        <nav aria-label="Paginación" class="paginacion">
+                            <ul class="pagination justify-content-end">
+                                <li class="page-item <?php echo $pagina<=1 ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=1&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-double-left"></span></a></li>
+                                <li class="page-item <?php echo $pagina<=1 ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $pagina-1; ?>&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-left"></span></a></li>
+                                <?php
+                                    if ($numero_paginas<=5 OR $pagina<=3) {
+                                        $pagina_inicio=1; $pagina_fin=$numero_paginas;
+                                        if ($pagina<=3 AND $numero_paginas>=5) {
+                                            $pagina_fin=5;
+                                        }
+                                    } else {
+                                        $pagina_inicio=$pagina-2; $pagina_fin=$pagina+2;
+                                        if (($numero_paginas-$pagina_inicio)<=5) {
+                                            $pagina_inicio=$numero_paginas-4; $pagina_fin=$numero_paginas;
+                                        }
+                                    }
+                                ?>
+                                <?php for ($i=$pagina_inicio; $i <= $pagina_fin; $i++): ?>
+                                    <li class="page-item <?php echo $pagina==$i ? 'active':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $i; ?>&id=<?php echo $filtro_permanente; ?>"><?php echo $i; ?></a></li>
+                                <?php endfor; ?>
+                                <li class="page-item <?php echo $pagina>=$numero_paginas ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $pagina+1; ?>&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-right"></a></li>
+                                <li class="page-item <?php echo $pagina>=$numero_paginas ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $numero_paginas; ?>&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-double-right"></a></li>
+                            </ul>
+                        </nav>
+                    </div>
+                    <div id="table-fixed" class="table-responsive table-fixed">
+                        <table class="table table-bordered table-striped table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th class="align-middle"></th>
+                                    <th class="align-middle">Estado</th>
+                                    <th class="align-middle">Doc. Identidad</th>
+                                    <th class="align-middle">Nombres y Apellidos</th>
+                                    <th class="align-middle">Usuario Acceso</th>
+                                    <th class="align-middle">Usuario Red</th>
+                                    <th class="align-middle">Correo Corporativo</th>
+                                    <th class="align-middle">Cargo/Rol</th>
+                                    <th class="align-middle">Ubicación</th>
+                                    <th class="align-middle">Campaña</th>
+                                    <th class="align-middle">Fecha Ingreso</th>
+                                    <th class="align-middle">Ciudad</th>
+                                    <th class="align-middle">Primer Empleo</th>
+                                </tr>
+                            </thead>    
+                            <tbody>    
+                                <?php
+                                    for ($i=0; $i < count($resultado_registros); $i++) { 
+                                ?>
+                                <tr>
+                                    <td class="align-middle text-center">
+                                        <?php if($perfil_modulo=="Administrador" OR $perfil_modulo=="Gestor"): ?>
+                                        <a href="gestion_usuarios_editar.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>&reg=<?php echo base64_encode($resultado_registros[$i][0]); ?>" class="btn btn-primary btn-sm btn-width" title="Editar"><span class="fas fa-pen"></span></a>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][9]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][0]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][2]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][1]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][6]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][3]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][7]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][8]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][5]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][4]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][11].", ".$resultado_registros[$i][10]; ?></td>
+                                    <td class="align-middle"><?php echo $resultado_registros[$i][12]; ?></td>
+                                </tr>
+                                <?php
+                                    }
+                                ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-7 float-left">
+                        <p class="paginacion_descripcion">Mostrando <?php if($registros_cantidad_total>0){ echo ($pagina*$registros_x_pagina)-$registros_x_pagina+1;}else{echo "0";} ?> a <?php if(($pagina*$registros_x_pagina)>$registros_cantidad_total) { echo $registros_cantidad_total; } else { echo $pagina*$registros_x_pagina; } ?> de <?php echo $registros_cantidad_total; ?></p>
+                    </div>
+                    <div class="col-md-5 float-left">
+                        <nav aria-label="Paginación" class="paginacion">
+                            <ul class="pagination justify-content-end">
+                                <li class="page-item <?php echo $pagina<=1 ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=1&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-double-left"></span></a></li>
+                                <li class="page-item <?php echo $pagina<=1 ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $pagina-1; ?>&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-left"></span></a></li>
+                                <?php
+                                    if ($numero_paginas<=5 OR $pagina<=3) {
+                                        $pagina_inicio=1; $pagina_fin=$numero_paginas;
+                                        if ($pagina<=3 AND $numero_paginas>=5) {
+                                            $pagina_fin=5;
+                                        }
+                                    } else {
+                                        $pagina_inicio=$pagina-2; $pagina_fin=$pagina+2;
+                                        if (($numero_paginas-$pagina_inicio)<=5) {
+                                            $pagina_inicio=$numero_paginas-4; $pagina_fin=$numero_paginas;
+                                        }
+                                    }
+                                ?>
+                                <?php for ($i=$pagina_inicio; $i <= $pagina_fin; $i++): ?>
+                                    <li class="page-item <?php echo $pagina==$i ? 'active':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $i; ?>&id=<?php echo $filtro_permanente; ?>"><?php echo $i; ?></a></li>
+                                <?php endfor; ?>
+                                <li class="page-item <?php echo $pagina>=$numero_paginas ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $pagina+1; ?>&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-right"></a></li>
+                                <li class="page-item <?php echo $pagina>=$numero_paginas ? 'disabled':'' ?>"><a class="page-link" href="gestion_usuarios.php?pagina=<?php echo $numero_paginas; ?>&id=<?php echo $filtro_permanente; ?>"><span class="fas fa-angle-double-right"></a></li>
+                            </ul>
+                        </nav>
+                    </div>
+                <?php else: ?>
+                    <p class="alert alert-warning">
+                        <span class="fas fa-exclamation-triangle"></span> No se encontraron registros
+                    </p>
+                <?php endif; ?>
+            </div>
+        </div>
+            
+    </div>
+    <?php
+        include("../footer.php");
+        include("../config/configuracion_js.php");
+    ?>
+    <script type="text/javascript">
+        function tabla_fixed(){
+            var tabla_fixed = document.getElementById("tabla_fixed");
+            var elemento = document.getElementById("table-fixed");
+            var elemento_1 = document.getElementById("elemento_1");
+            alto_ventana=window.outerHeight-elemento_1.clientHeight-100;
+            alto_tabla=tabla_fixed.clientHeight+200;
+
+            if (alto_tabla>alto_ventana) {
+                alto_elemento=alto_ventana-200;
+                elemento.style.height=alto_elemento+"px";
+            }
+        }
+    </script>
+</body>
+</html>
