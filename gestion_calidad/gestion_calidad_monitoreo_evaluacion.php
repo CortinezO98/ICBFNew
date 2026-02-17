@@ -11,6 +11,17 @@
     $pagina=validar_input($_GET['pagina']);
     $filtro_permanente=validar_input($_GET['id']);
 
+    // =========================
+    // CSRF token para guardado
+    // =========================
+    if (empty($_SESSION['csrf_token_monitoreo'])) {
+        $_SESSION['csrf_token_monitoreo'] = bin2hex(random_bytes(32));
+    }
+
+    // Defaults para evitar notices (no cambia funcionalidad)
+    if (!isset($_SESSION['registro_creado'])) { $_SESSION['registro_creado'] = 0; }
+    if (!isset($_SESSION['incidencia_guardada'])) { $_SESSION['incidencia_guardada'] = 0; }
+
     if(isset($_POST["guardar_informacion"])){
         $_SESSION["mon_informacion"]["matriz"]=validar_input($_POST['id_matriz']);
         $_SESSION["mon_informacion"]["analista"]=validar_input($_POST['analista']);
@@ -52,7 +63,6 @@
 
     /*Enlace para botón finalizar y cancelar*/
     $ruta_cancelar_finalizar="gestion_calidad_monitoreo.php?pagina=".$pagina."&id=".$filtro_permanente."&bandeja=".base64_encode('Mes Actual');
-    
 ?>
 <!DOCTYPE html>
 <html lang="ES">
@@ -69,13 +79,19 @@
     <div class="contenido">
         <div class="row" id="elemento_1">
             <div class="col-md-3 py-2">
-                
+
             </div>
             <div class="col-md-9 py-2">
                 <a href="gestion_calidad_monitoreo_informacion.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>" class="btn btn-corp menu float-right"><div class="float-left"><span class="fas fa-arrow-left"></span></div><div class="pl-2 menu_res float-left">Regresar</div></a>
             </div>
         </div>
+
         <form name="guardar_monitoreo" action="gestion_calidad_monitoreo_guardar.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>" method="POST" enctype="multipart/form-data">
+
+            <!-- ✅ IMPORTANTE: enviar el token al guardar.php -->
+            <input type="hidden" name="csrf_token_monitoreo"
+                   value="<?php echo htmlspecialchars($_SESSION['csrf_token_monitoreo'], ENT_QUOTES, 'UTF-8'); ?>">
+
         <div class="row" id="tabla_fixed">
             <div class="col-md-4">
                 <div class="table-responsive">
@@ -135,6 +151,7 @@
                     </table>
                 </div>
             </div>
+
             <div class="col-md-8">
                 <?php if (count($resultado_registros)>0): ?>
                     <div id="table-fixed" class="table-responsive table-fixed">
@@ -151,7 +168,7 @@
                             </thead>
                             <tbody>
                                 <?php
-                                    for ($i=0; $i < count($resultado_registros); $i++) { 
+                                    for ($i=0; $i < count($resultado_registros); $i++) {
                                 ?>
                                 <?php if($resultado_registros[$i][9]=="Si"): ?>
                                 <tr class="<?php if($resultado_registros[$i][2]=='Grupo'){echo'matriz-grupo';} elseif($resultado_registros[$i][2]=='Sub-Grupo'){echo'matriz-grupo-sub';} elseif($resultado_registros[$i][2]=='Item'){echo'matriz-item';}?>">
@@ -171,7 +188,8 @@
                                             <input type="hidden" name="peso_nota[]" value="<?php echo $resultado_registros[$i][6]; ?>">
                                             <input type="hidden" name="tipo_error[]" value="<?php echo $resultado_registros[$i][10]; ?>">
                                         <?php endif; ?>
-                                        <?php echo $resultado_registros[$i][3]; ?></td>
+                                        <?php echo $resultado_registros[$i][3]; ?>
+                                    </td>
                                     <td class="align-middle"><?php echo $resultado_registros[$i][5]; ?></td>
                                     <td class="align-middle text-center"><?php echo $resultado_registros[$i][6]; ?>% <?php if($resultado_registros[$i][2]=='Grupo') { echo '/ SLA-'.$resultado_registros[$i][16].'%'; } ?></td>
                                     <td class="align-middle text-center align-middle">
@@ -200,10 +218,8 @@
                                         <?php endif; ?>
                                     </td>
                                 </tr>
-                            <?php endif; ?>
-                                <?php
-                                    }
-                                ?>
+                                <?php endif; ?>
+                                <?php } ?>
                             </tbody>
                         </table>
                     </div>
@@ -212,6 +228,7 @@
                         <span class="fas fa-exclamation-triangle p-1"></span> No se encontraron registros
                     </p>
                 <?php endif; ?>
+
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group">
@@ -242,8 +259,10 @@
                         </div>
                     </div>
                 </div>
+
             </div>
         </div>
+
         <div class="row">
             <div class="col-md-12">
                 <div class="form-group">
@@ -258,10 +277,12 @@
         </div>
         </form>
     </div>
+
     <?php
         include("../footer.php");
         include("../config/configuracion_js.php");
     ?>
+
     <script type="text/javascript">
         $("#inputGroupFile01").change(function(){
             var soportes='<b>Documentos seleccionados:</b><br>';
@@ -312,7 +333,6 @@
                 $("#comentario_"+id_elemento).removeClass('d-none').addClass('d-block');
                 document.getElementById("comentario_"+id_elemento).disabled = false;
             }
-            
         }
 
         function tabla_fixed(){

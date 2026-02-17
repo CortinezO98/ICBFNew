@@ -58,6 +58,14 @@
         exit;
     }
 
+    if (!isset($_POST["guardar_registro"])) {
+        $last = $_SESSION['refutar_last_id'] ?? '';
+        if ((string)$last !== (string)$id_registro) {
+            $_SESSION['registro_creado_cambio_estado'] = 0;
+            $_SESSION['refutar_last_id'] = (string)$id_registro;
+        }
+    }
+
     if(isset($_POST["guardar_registro"])){
 
         // Valida CSRF (sin cambiar UX; si falla, muestra alerta)

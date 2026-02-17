@@ -3,7 +3,7 @@
     $modulo_plataforma="Calidad-Monitoreos";
 
     require_once("../config/validaciones_seguridad.php");
-	require_once("../config/conexion_db.php");
+    require_once("../config/conexion_db.php");
 
     /* =======================
        Helpers XSS (salida segura)
@@ -16,6 +16,13 @@
     if (!function_exists('h_attr')) {
         function h_attr($value) {
             return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+        }
+    }
+
+    // Helper selected tolerante a espacios (como informacion.php)
+    if (!function_exists('selected_trim')) {
+        function selected_trim($current, $option){
+            return (trim((string)$current) === trim((string)$option)) ? 'selected' : '';
         }
     }
 
@@ -105,7 +112,7 @@
                     TMC.`gcm_nota_ecuf`, TMC.`gcm_estado`, TUR.`usu_nombres_apellidos`, TMC.`gcm_registro_fecha`,
                     TP.`ap_nombre_piloto`, TS.`usu_nombres_apellidos`, TMC.`gcm_matriz`, `gcm_nota_general`,
                     `gcm_nota_enc_estado`, `gcm_nota_ecn_estado`, `gcm_nota_ecuf_estado`, `gcm_aplica_indicador`,
-                    `gcm_fecha_monitoreo`, TM.`gcm_observaciones`
+                    `gcm_fecha_monitoreo`, TM.`gcm_observaciones`, TMC.`gcm_encuesta`
                 FROM `tb_gestion_calidad_monitoreo` AS TMC
                 LEFT JOIN `tb_gestion_calidad_matriz` AS TM ON TMC.`gcm_matriz`=TM.`gcm_id`
                 LEFT JOIN `tb_administrador_usuario` AS TUR ON TMC.`gcm_registro_usuario`=TUR.`usu_id`
@@ -240,7 +247,7 @@
                 $nc_reply_to="";
                 $nc_subject="[Reasignado] Monitoreo Calidad | ".$resultado_registros[0][0];
                 $nc_body=str_replace("'", '"', $contenido_correo);
-                $nc_embeddedimage_ruta="/var/www/html/images/firma-verde.png";
+                $nc_embeddedimage_ruta="/var/www/icbf/html/images/firma-verde.png";
                 $nc_embeddedimage_nombre="logo_firma_verde";
                 $nc_embeddedimage_tipo="image/png";
                 $nc_intentos="";
@@ -327,6 +334,88 @@
     /*Enlace para botón finalizar y cancelar*/
     $ruta_cancelar_finalizar="gestion_calidad_monitoreo.php?pagina=".$pagina."&id=".$filtro_permanente."&bandeja=".base64_encode($bandeja);
 
+    // ====== Valores actuales (normalizados para selects) ======
+    $sel_tipo_mon   = trim((string)($resultado_registros[0][6] ?? ''));
+    $sel_skill      = (string)($resultado_registros[0][7] ?? '');
+    $sel_tipo_gest  = (string)($resultado_registros[0][8] ?? '');
+    $sel_segmento   = (string)($resultado_registros[0][9] ?? '');
+    $sel_indicador  = (string)($resultado_registros[0][26] ?? '');
+    $sel_encuesta   = trim((string)($resultado_registros[0][29] ?? ''));
+
+    // Listas EXACTAS como informacion.php (para que tengas las mismas opciones)
+    $op_tipo_monitoreo = ["En línea","Grabación","Al lado"];
+
+    $op_skills = [
+        "Click to Call",
+        "Línea Verde",
+        "Legal",
+        "Línea 141",
+        "Línea Anticorrupción",
+        "Línea Nacional",
+        "Mi Familia",
+        "SNBF",
+        "Violencia",
+        "Correos",
+        "Redes Sociales",
+        "Escrito",
+        "Chat",
+        "WhatsApp",
+        "Videollamada",
+        "Apoyo Adopciones",
+        "N/A"
+    ];
+
+    $op_tipo_gestion = [
+        "Acompañamiento familiar",
+        "Actuación ANNACC",
+        "ACVN",
+        "Anexo",
+        "Orientación en derecho de familia",
+        "Atención en Crisis",
+        "Búsqueda de Orígenes",
+        "Comunicación NNA",
+        "Consulta",
+        "Correos",
+        "Encuestas",
+        "Inobservancia",
+        "IO",
+        "IOT",
+        "No Gestionó",
+        "No Serio",
+        "Observación",
+        "Oficio",
+        "Quejas",
+        "RAVD",
+        "Reclamo",
+        "Reporte a Policía",
+        "SRD",
+        "Sugerencias",
+        "TAE",
+        "N/A",
+        "Transferencia"
+    ];
+
+    $op_segmento = [
+        "Aseguramiento",
+        "Canal escrito",
+        "Chat ICBF",
+        "Conmutador",
+        "Correos y Portales",
+        "Encuestas",
+        "Línea 141",
+        "Línea Nacional",
+        "Mi Familia",
+        "Presencial",
+        "Profesional Es Abogados",
+        "Profesional ES Psicólogos",
+        "Redes Sociales",
+        "Video Llamada",
+        "WhatsApp"
+    ];
+
+    // Indicador (mismas opciones que informacion.php + compatibilidad con valores viejos)
+    $op_indicador_nuevo = ["Indicador","Encuesta","No- Curva","No- Supervisor","No- Gestor"];
+
 ?>
 <!DOCTYPE html>
 <html lang="ES">
@@ -403,9 +492,17 @@
                             <label for="tipo_monitoreo" class="m-0">Tipo monitoreo</label>
                             <select class="form-control form-control-sm" name="tipo_monitoreo" id="tipo_monitoreo" required>
                               <option value="">Seleccione</option>
-                              <option value="En línea" <?php if(($resultado_registros[0][6] ?? '')=="En línea"){ echo "selected"; } ?>>En línea</option>
-                              <option value="Grabación" <?php if(($resultado_registros[0][6] ?? '')=="Grabación"){ echo "selected"; } ?>>Grabación</option>
-                              <option value="Calibración" <?php if(($resultado_registros[0][6] ?? '')=="Calibración"){ echo "selected"; } ?>>Calibración</option>
+                              <?php
+                                // Compat: si viene un valor viejo no listado, lo muestro
+                                $en_lista = false;
+                                foreach ($op_tipo_monitoreo as $o){ if(trim($sel_tipo_mon) === trim($o)) { $en_lista = true; break; } }
+                                if ($sel_tipo_mon !== '' && !$en_lista){
+                                    echo '<option value="'.h_attr($sel_tipo_mon).'" selected>'.h($sel_tipo_mon).'</option>';
+                                }
+                                foreach ($op_tipo_monitoreo as $opt){
+                                    echo '<option value="'.h_attr($opt).'" '.selected_trim($sel_tipo_mon, $opt).'>'.h($opt).'</option>';
+                                }
+                              ?>
                             </select>
                         </div>
                     </div>
@@ -415,16 +512,18 @@
                             <label for="skill_interaccion" class="m-0">Skill interacción</label>
                             <select class="form-control form-control-sm" name="skill_interaccion" id="skill_interaccion" required>
                               <option value="">Seleccione</option>
-                              <option value="Click to Call" <?php if(($resultado_registros[0][7] ?? '')=="Click to Call"){ echo "selected"; } ?>>Click to Call</option>
-                              <option value="Legal" <?php if(($resultado_registros[0][7] ?? '')=="Legal"){ echo "selected"; } ?>>Legal</option>
-                              <option value="Línea 141" <?php if(($resultado_registros[0][7] ?? '')=="Línea 141"){ echo "selected"; } ?>>Línea 141</option>
-                              <option value="Línea Anticorrupción" <?php if(($resultado_registros[0][7] ?? '')=="Línea Anticorrupción"){ echo "selected"; } ?>>Línea Anticorrupción</option>
-                              <option value="Línea Nacional" <?php if(($resultado_registros[0][7] ?? '')=="Línea Nacional"){ echo "selected"; } ?>>Línea Nacional</option>
-                              <option value="Mi Familia" <?php if(($resultado_registros[0][7] ?? '')=="Mi Familia"){ echo "selected"; } ?>>Mi Familia</option>
-                              <option value="Línea Verde" <?php if(($resultado_registros[0][7] ?? '')=="Línea Verde"){ echo "selected"; } ?>>Línea Verde</option>
-                              <option value="SNBF" <?php if(($resultado_registros[0][7] ?? '')=="SNBF"){ echo "selected"; } ?>>SNBF</option>
-                              <option value="Violencia " <?php if(($resultado_registros[0][7] ?? '')=="Violencia "){ echo "selected"; } ?>>Violencia </option>
-                              <option value="N/A" <?php if(($resultado_registros[0][7] ?? '')=="N/A"){ echo "selected"; } ?>>N/A</option>
+                              <?php
+                                // Igual que informacion.php: lista completa + si hay valor viejo no listado, se conserva visible
+                                $en_lista = false;
+                                foreach ($op_skills as $o){ if(trim($sel_skill) === trim($o)) { $en_lista = true; break; } }
+                                if ($sel_skill !== '' && !$en_lista){
+                                    echo '<option value="'.h_attr($sel_skill).'" selected>'.h($sel_skill).'</option>';
+                                }
+                                foreach ($op_skills as $opt){
+                                    $label = ($opt === "N/A") ? "No Aplica (N/A)" : $opt;
+                                    echo '<option value="'.h_attr($opt).'" '.selected_trim($sel_skill, $opt).'>'.h($label).'</option>';
+                                }
+                              ?>
                             </select>
                         </div>
                     </div>
@@ -434,32 +533,17 @@
                             <label for="tipo_gestion" class="m-0">Tipo gestión</label>
                             <select class="form-control form-control-sm" name="tipo_gestion" id="tipo_gestion" required>
                               <option value="">Seleccione</option>
-                              <option value="Acompañamiento familiar" <?php if(($resultado_registros[0][8] ?? '')=="Acompañamiento familiar"){ echo "selected"; } ?>>Acompañamiento familiar</option>
-                              <option value="Actuación ANNACC" <?php if(($resultado_registros[0][8] ?? '')=="Actuación ANNACC"){ echo "selected"; } ?>>Actuación ANNACC</option>
-                              <option value="ACVN" <?php if(($resultado_registros[0][8] ?? '')=="ACVN"){ echo "selected"; } ?>>ACVN</option>
-                              <option value="Anexo" <?php if(($resultado_registros[0][8] ?? '')=="Anexo"){ echo "selected"; } ?>>Anexo</option>
-                              <option value="Asesoría en Derecho de Familia" <?php if(($resultado_registros[0][8] ?? '')=="Asesoría en Derecho de Familia"){ echo "selected"; } ?>>Asesoría en Derecho de Familia</option>
-                              <option value="Atención en Crisis" <?php if(($resultado_registros[0][8] ?? '')=="Atención en Crisis"){ echo "selected"; } ?>>Atención en Crisis</option>
-                              <option value="Búsqueda de Orígenes" <?php if(($resultado_registros[0][8] ?? '')=="Búsqueda de Orígenes"){ echo "selected"; } ?>>Búsqueda de Orígenes</option>
-                              <option value="Comunicación NNA" <?php if(($resultado_registros[0][8] ?? '')=="Comunicación NNA"){ echo "selected"; } ?>>Comunicación NNA</option>
-                              <option value="Consulta" <?php if(($resultado_registros[0][8] ?? '')=="Consulta"){ echo "selected"; } ?>>Consulta</option>
-                              <option value="Correos" <?php if(($resultado_registros[0][8] ?? '')=="Correos"){ echo "selected"; } ?>>Correos</option>
-                              <option value="Encuestas " <?php if(($resultado_registros[0][8] ?? '')=="Encuestas "){ echo "selected"; } ?>>Encuestas </option>
-                              <option value="Inobservancia" <?php if(($resultado_registros[0][8] ?? '')=="Inobservancia"){ echo "selected"; } ?>>Inobservancia</option>
-                              <option value="IO" <?php if(($resultado_registros[0][8] ?? '')=="IO"){ echo "selected"; } ?>>IO</option>
-                              <option value="IOT" <?php if(($resultado_registros[0][8] ?? '')=="IOT"){ echo "selected"; } ?>>IOT</option>
-                              <option value="No Gestionó" <?php if(($resultado_registros[0][8] ?? '')=="No Gestionó"){ echo "selected"; } ?>>No Gestionó</option>
-                              <option value="No Serio" <?php if(($resultado_registros[0][8] ?? '')=="No Serio"){ echo "selected"; } ?>>No Serio</option>
-                              <option value="Observación" <?php if(($resultado_registros[0][8] ?? '')=="Observación"){ echo "selected"; } ?>>Observación</option>
-                              <option value="Oficio" <?php if(($resultado_registros[0][8] ?? '')=="Oficio"){ echo "selected"; } ?>>Oficio</option>
-                              <option value="Quejas" <?php if(($resultado_registros[0][8] ?? '')=="Quejas"){ echo "selected"; } ?>>Quejas</option>
-                              <option value="RAVD" <?php if(($resultado_registros[0][8] ?? '')=="RAVD"){ echo "selected"; } ?>>RAVD</option>
-                              <option value="Reclamo" <?php if(($resultado_registros[0][8] ?? '')=="Reclamo"){ echo "selected"; } ?>>Reclamo</option>
-                              <option value="Reporte a Policía" <?php if(($resultado_registros[0][8] ?? '')=="Reporte a Policía"){ echo "selected"; } ?>>Reporte a Policía</option>
-                              <option value="SRD" <?php if(($resultado_registros[0][8] ?? '')=="SRD"){ echo "selected"; } ?>>SRD</option>
-                              <option value="Sugerencias" <?php if(($resultado_registros[0][8] ?? '')=="Sugerencias"){ echo "selected"; } ?>>Sugerencias</option>
-                              <option value="TAE" <?php if(($resultado_registros[0][8] ?? '')=="TAE"){ echo "selected"; } ?>>TAE</option>
-                              <option value="N/A" <?php if(($resultado_registros[0][8] ?? '')=="N/A"){ echo "selected"; } ?>>N/A</option>
+                              <?php
+                                $sel = $sel_tipo_gest;
+                                $en_lista = false;
+                                foreach ($op_tipo_gestion as $o){ if(trim($sel) === trim($o)) { $en_lista = true; break; } }
+                                if ($sel !== '' && !$en_lista){
+                                    echo '<option value="'.h_attr($sel).'" selected>'.h($sel).'</option>';
+                                }
+                                foreach ($op_tipo_gestion as $opt){
+                                    echo '<option value="'.h_attr($opt).'" '.selected_trim($sel, $opt).'>'.h($opt).'</option>';
+                                }
+                              ?>
                             </select>
                         </div>
                     </div>
@@ -469,21 +553,17 @@
                             <label for="segmento" class="m-0">Segmento</label>
                             <select class="form-control form-control-sm" name="segmento" id="segmento" required>
                               <option value="">Seleccione</option>
-                              <option value="Aseguramiento" <?php if(($resultado_registros[0][9] ?? '')=="Aseguramiento"){ echo "selected"; } ?>>Aseguramiento</option>
-                              <option value="Canal escrito" <?php if(($resultado_registros[0][9] ?? '')=="Canal escrito"){ echo "selected"; } ?>>Canal escrito</option>
-                              <option value="Chat ICBF" <?php if(($resultado_registros[0][9] ?? '')=="Chat ICBF"){ echo "selected"; } ?>>Chat ICBF</option>
-                              <option value="Conmutador" <?php if(($resultado_registros[0][9] ?? '')=="Conmutador"){ echo "selected"; } ?>>Conmutador</option>
-                              <option value="Correos y Portales" <?php if(($resultado_registros[0][9] ?? '')=="Correos y Portales"){ echo "selected"; } ?>>Correos y Portales</option>
-                              <option value="Encuestas" <?php if(($resultado_registros[0][9] ?? '')=="Encuestas"){ echo "selected"; } ?>>Encuestas</option>
-                              <option value="Línea 141" <?php if(($resultado_registros[0][9] ?? '')=="Línea 141"){ echo "selected"; } ?>>Línea 141</option>
-                              <option value="Línea Nacional" <?php if(($resultado_registros[0][9] ?? '')=="Línea Nacional"){ echo "selected"; } ?>>Línea Nacional</option>
-                              <option value="Mi Familia" <?php if(($resultado_registros[0][9] ?? '')=="Mi Familia"){ echo "selected"; } ?>>Mi Familia</option>
-                              <option value="Presencial" <?php if(($resultado_registros[0][9] ?? '')=="Presencial"){ echo "selected"; } ?>>Presencial</option>
-                              <option value="Profesional Es Abogados" <?php if(($resultado_registros[0][9] ?? '')=="Profesional Es Abogados"){ echo "selected"; } ?>>Profesional Es Abogados</option>
-                              <option value="Profesional ES Psicólogos" <?php if(($resultado_registros[0][9] ?? '')=="Profesional ES Psicólogos"){ echo "selected"; } ?>>Profesional ES Psicólogos</option>
-                              <option value="Redes Sociales" <?php if(($resultado_registros[0][9] ?? '')=="Redes Sociales"){ echo "selected"; } ?>>Redes Sociales</option>
-                              <option value="Video Llamada" <?php if(($resultado_registros[0][9] ?? '')=="Video Llamada"){ echo "selected"; } ?>>Video Llamada</option>
-                              <option value="WhatsApp" <?php if(($resultado_registros[0][9] ?? '')=="WhatsApp"){ echo "selected"; } ?>>WhatsApp</option>
+                              <?php
+                                $sel = $sel_segmento;
+                                $en_lista = false;
+                                foreach ($op_segmento as $o){ if(trim($sel) === trim($o)) { $en_lista = true; break; } }
+                                if ($sel !== '' && !$en_lista){
+                                    echo '<option value="'.h_attr($sel).'" selected>'.h($sel).'</option>';
+                                }
+                                foreach ($op_segmento as $opt){
+                                    echo '<option value="'.h_attr($opt).'" '.selected_trim($sel, $opt).'>'.h($opt).'</option>';
+                                }
+                              ?>
                             </select>
                         </div>
                     </div>
@@ -492,7 +572,8 @@
                         <div class="form-group">
                           <label for="id_sim" class="m-0">Id SIM</label>
                           <input type="text" class="form-control form-control-sm" name="id_sim" id="id_sim" maxlength="100"
-                                 value="<?php echo h_attr($resultado_registros[0][10] ?? ''); ?>" required>
+                                 value="<?php echo h_attr($resultado_registros[0][10] ?? ''); ?>"
+                                 onkeyup="consultar_idsim();" required>
                         </div>
                     </div>
 
@@ -509,9 +590,9 @@
                             <label for="gcm_encuesta" class="m-0">Encuesta</label>
                             <select class="form-control form-control-sm" name="gcm_encuesta" id="gcm_encuesta" required>
                               <option value="">Seleccione</option>
-                              <option value="Si" <?php if(($resultado_registros[0][29] ?? '')=="Si"){ echo "selected"; } ?>>Si</option>
-                              <option value="No" <?php if(($resultado_registros[0][29] ?? '')=="No"){ echo "selected"; } ?>>No</option>
-                              <option value="No aplica" <?php if(($resultado_registros[0][29] ?? '')=="No aplica"){ echo "selected"; } ?>>No aplica</option>
+                              <option value="Si"        <?php echo ($sel_encuesta==="Si") ? "selected" : ""; ?>>Si</option>
+                              <option value="No"        <?php echo ($sel_encuesta==="No") ? "selected" : ""; ?>>No</option>
+                              <option value="No aplica" <?php echo ($sel_encuesta==="" || $sel_encuesta==="No aplica") ? "selected" : ""; ?>>No aplica</option>
                             </select>
                         </div>
                     </div>
@@ -522,16 +603,26 @@
                                 <label for="indicador" class="m-0">Indicador</label>
                                 <select class="form-control form-control-sm" name="indicador" id="indicador" required>
                                   <option value="">Seleccione</option>
-                                  <option value="No-Cliente" <?php if(($resultado_registros[0][26] ?? '')=="No-Cliente"){ echo "selected"; } ?>>No-Cliente</option>
-                                  <option value="No-Curva Aprendizaje" <?php if(($resultado_registros[0][26] ?? '')=="No-Curva Aprendizaje"){ echo "selected"; } ?>>No-Curva Aprendizaje</option>
-                                  <option value="No-Formador" <?php if(($resultado_registros[0][26] ?? '')=="No-Formador"){ echo "selected"; } ?>>No-Formador</option>
-                                  <option value="No-Gestor" <?php if(($resultado_registros[0][26] ?? '')=="No-Gestor"){ echo "selected"; } ?>>No-Gestor</option>
-                                  <option value="No-Supervisor" <?php if(($resultado_registros[0][26] ?? '')=="No-Supervisor"){ echo "selected"; } ?>>No-Supervisor</option>
-                                  <option value="Si" <?php if(($resultado_registros[0][26] ?? '')=="Si"){ echo "selected"; } ?>>Si</option>
+                                  <?php
+                                    // MISMAS opciones que informacion.php
+                                    $en_lista = false;
+                                    foreach ($op_indicador_nuevo as $o){ if(trim($sel_indicador) === trim($o)) { $en_lista = true; break; } }
+
+                                    // Compat: si el registro tiene valor viejo (Si, No-Gestor, No-Formador, No-Curva Aprendizaje, etc.)
+                                    if ($sel_indicador !== '' && !$en_lista){
+                                        echo '<option value="'.h_attr($sel_indicador).'" selected>'.h($sel_indicador).'</option>';
+                                    }
+
+                                    foreach ($op_indicador_nuevo as $opt){
+                                        echo '<option value="'.h_attr($opt).'" '.selected_trim($sel_indicador, $opt).'>'.h($opt).'</option>';
+                                    }
+                                  ?>
                                 </select>
                             </div>
                         </div>
                     <?php endif; ?>
+
+                    <div class="col-md-12" id="coincidencias"></div>
                 </div>
 
                 <div class="row">
@@ -560,5 +651,17 @@
         include("../config/configuracion_js.php");
     ?>
     <script src="../js/bootstrap-select/dist/js/bootstrap-select.min.js"></script>
+    <script type="text/javascript">
+        // Igual que informacion.php: consulta de duplicados por ID SIM
+        function consultar_idsim(){
+            $.ajax({
+                success: function(){
+                    $("#coincidencias").load(
+                        "gestion_calidad_monitoreo_informacion_duplicado.php?id=" + encodeURIComponent($("#id_sim").val())
+                    );
+                }
+            });
+        }
+    </script>
 </body>
 </html>
