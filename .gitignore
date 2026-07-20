@@ -38,3 +38,36 @@ backup/
 backups/
 *.bak
 *.old/vendor/
+
+#######################################
+# LIBRERÍAS DE TERCEROS (NO versionadas en Git,
+# se copian manualmente al servidor / se descargan aparte)
+#######################################
+css/
+js/
+fonts/
+PHPOffice/
+PHPMailer-master/
+PHPCalendario/
+Highcharts/
+HighchartsGantt/
+Highcharts-Maps/
+anychart/
+
+#######################################
+# STORAGE DEL MÓDULO DE COACHING (agregado junto a gestion_calidad/storage/)
+#######################################
+gestion_coaching/storage/
+#######################################
+# DUMPS DE BASE DE DATOS (NO versionar - pueden contener datos reales)
+#######################################
+*.sql
+dump-*.sql
+*.dump
+
+# EXCEPCIÓN: las migraciones/seeds/rollback de Coaching SÍ se versionan
+# (son código de estructura, no datos — mismo criterio que ya tenías
+# implícito para el resto del proyecto)
+!database/migrations/*.sql
+!database/seeds/*.sql
+!database/rollback/*.sql
