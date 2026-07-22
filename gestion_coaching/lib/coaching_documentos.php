@@ -3,6 +3,16 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/coaching_datos.php';
 
+// Autoload de Composer del proyecto (mismo vendor/ real de la raíz del
+// sitio, no una copia separada). Sin esto, class_exists('\Mpdf\Mpdf')
+// siempre da falso aunque mPDF esté instalado, porque PHP nunca llega a
+// cargar la clase — este era el bug real detrás del aviso persistente de
+// "librería no instalada".
+$coaching_autoload_composer = __DIR__ . '/../../vendor/autoload.php';
+if (is_readable($coaching_autoload_composer)) {
+    require_once $coaching_autoload_composer;
+}
+
 /**
  * gestion_coaching/lib/coaching_documentos.php
  *

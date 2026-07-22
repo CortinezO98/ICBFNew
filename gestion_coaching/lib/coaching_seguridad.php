@@ -86,6 +86,42 @@ function coachingContarPendientesAccion(mysqli $enlace_db, string $usu_id, strin
 }
 
 /**
+ * Igual que coachingContarPendientesAccion(), pero además devuelve el
+ * gcp_id cuando hay exactamente un paquete pendiente — para que la alerta
+ * flotante pueda enlazar directo al paquete en vez de siempre a la
+ * bandeja general.
+ */
+function coachingPendientesDetalle(mysqli $enlace_db, string $usu_id, string $perfil): array
+{
+    if ($perfil === 'Agente') {
+        $consulta = $enlace_db->prepare(
+            "SELECT `gcp_id` FROM `tb_gestion_coaching_paquete`
+             WHERE `gcp_agente_id` = ? AND `gcp_activo` = 1
+               AND `gcp_estado_id` IN (
+                   SELECT `gce_id` FROM `tb_gestion_coaching_estado` WHERE `gce_codigo` IN ('PENDIENTE_AGENTE','PENDIENTE_FIRMA_AGENTE')
+               )"
+        );
+        $consulta->bind_param('s', $usu_id);
+    } elseif ($perfil === 'Supervisor') {
+        $consulta = $enlace_db->prepare(
+            "SELECT `gcp_id` FROM `tb_gestion_coaching_paquete`
+             WHERE `gcp_supervisor_id` = ? AND `gcp_activo` = 1
+               AND `gcp_estado_id` IN (
+                   SELECT `gce_id` FROM `tb_gestion_coaching_estado` WHERE `gce_codigo` IN ('ASIGNADO','PENDIENTE_SUPERVISOR','RESPONDIDO_AGENTE','PENDIENTE_CIERRE')
+               )"
+        );
+        $consulta->bind_param('s', $usu_id);
+    } else {
+        return ['total' => 0, 'unico_gcp_id' => null];
+    }
+    $consulta->execute();
+    $filas = $consulta->get_result()->fetch_all(MYSQLI_ASSOC);
+    $total = count($filas);
+    return ['total' => $total, 'unico_gcp_id' => $total === 1 ? $filas[0]['gcp_id'] : null];
+}
+
+
+/**
  * Autorización de RECURSO para el detalle de un paquete concreto: ¿puede
  * este usuario ver ESTE gcp_id? Complementa (no reemplaza) el filtro de
  * alcance de la bandeja — se vuelve a validar aquí porque alguien podría

@@ -123,6 +123,28 @@
         .coaching_campo_error_texto { color: #FF0000; font-size: 11px; margin-top: 3px; }
         .coaching_solo_lectura { background: #F2F2F2; border-radius: 5px; padding: 10px; font-size: 12px; white-space: pre-line; }
         #btn_guardar[disabled] { opacity: .7; cursor: not-allowed; }
+
+        .coaching_card_titulo { display: flex; align-items: center; gap: 8px; }
+        .coaching_card_titulo .badge-paso {
+            width: 22px; height: 22px; border-radius: 50%; background: #FFFFFF; color: #4CAF50;
+            display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; flex-shrink: 0;
+        }
+        .coaching_contador { font-size: 10px; color: #6E6E6E; text-align: right; margin-top: 3px; }
+
+        /* La casilla de confirmación usa clases de Bootstrap que el
+           style.css del sitio sobreescribe globalmente (deja el checkbox
+           estirado como una barra) — se corrige aquí con un checkbox
+           propio de tamaño y forma fijos. */
+        .coaching_confirmacion {
+            background: #F1F8F2; border: 1px solid #4CAF50; border-radius: 6px;
+            padding: 14px; margin-top: 20px; display: flex; align-items: flex-start; gap: 10px;
+        }
+        .coaching_confirmacion input[type="checkbox"] {
+            -webkit-appearance: checkbox; appearance: checkbox;
+            width: 18px; height: 18px; min-width: 18px; margin: 2px 0 0 0; flex-shrink: 0; cursor: pointer;
+        }
+        .coaching_confirmacion label { font-size: 12px; color: #1A1A1A; margin: 0; cursor: pointer; line-height: 1.5; }
+        .coaching_confirmacion.error { border-color: #FF0000; background: #FDEDED; }
     </style>
 </head>
 <body>
@@ -144,10 +166,11 @@
             <div class="col-md-8">
                 <div class="text-center mb-3">
                     <h4 class="titulo_seccion mb-0">Retroalimentación recibida</h4>
+                    <span class="descripcion-seccion-conocimiento">Paquete <?php echo validar_output($gcp_id); ?> · Lea con atención antes de responder</span>
                 </div>
 
                 <div class="cuadro_dash mb-3">
-                    <div class="cuadro_dash_titulo p-2"><span class="fas fa-comment-dots"></span> Lo que registró su supervisor</div>
+                    <div class="cuadro_dash_titulo p-2 coaching_card_titulo"><span class="badge-paso">1</span> Lo que registró su supervisor</div>
                     <div class="p-3">
                         <label class="coaching_label">Causa raíz</label>
                         <div class="coaching_solo_lectura mb-3"><?php echo nl2br(validar_output($retro['gcr_causa_raiz'] ?? '')); ?></div>
@@ -158,7 +181,7 @@
 
                 <?php if (count($compromisos) > 0): ?>
                 <div class="cuadro_dash mb-3">
-                    <div class="cuadro_dash_titulo p-2"><span class="fas fa-handshake"></span> Compromisos definidos</div>
+                    <div class="cuadro_dash_titulo p-2 coaching_card_titulo"><span class="badge-paso">2</span> Compromisos definidos</div>
                     <div class="p-3">
                         <?php foreach ($compromisos as $c): ?>
                             <div class="coaching_solo_lectura mb-2"><?php echo nl2br(validar_output($c['gccm_descripcion'])); ?></div>
@@ -171,19 +194,20 @@
                     <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($_SESSION['_csrf_token']); ?>">
 
                     <div class="cuadro_dash mb-3">
-                        <div class="cuadro_dash_titulo p-2"><span class="fas fa-reply"></span> Su respuesta</div>
+                        <div class="cuadro_dash_titulo p-2 coaching_card_titulo"><span class="badge-paso"><?php echo count($compromisos) > 0 ? '3' : '2'; ?></span> Su respuesta</div>
                         <div class="p-3">
                             <label class="coaching_label" for="compromiso_general">Compromiso frente a la situación</label>
-                            <textarea name="compromiso_general" id="compromiso_general" class="form-control <?php echo isset($errores_campo['compromiso_general']) ? 'coaching_campo_error' : ''; ?>" style="height:80px;"><?php echo isset($_POST['compromiso_general']) ? htmlspecialchars($_POST['compromiso_general']) : ''; ?></textarea>
+                            <textarea name="compromiso_general" id="compromiso_general" class="form-control <?php echo isset($errores_campo['compromiso_general']) ? 'coaching_campo_error' : ''; ?>" style="height:80px;" maxlength="1000" required><?php echo isset($_POST['compromiso_general']) ? htmlspecialchars($_POST['compromiso_general']) : ''; ?></textarea>
+                            <div class="coaching_contador" id="contador_compromiso">0 / 1000</div>
                             <?php if (isset($errores_campo['compromiso_general'])): ?><div class="coaching_campo_error_texto"><?php echo $errores_campo['compromiso_general']; ?></div><?php endif; ?>
 
                             <div class="mt-3">
-                                <label class="coaching_label" for="acciones_no_reincidencia">Acciones para evitar reincidencia</label>
+                                <label class="coaching_label" for="acciones_no_reincidencia">Acciones para evitar reincidencia <span style="font-weight:normal;color:#6E6E6E;font-size:10px;">(opcional)</span></label>
                                 <textarea name="acciones_no_reincidencia" id="acciones_no_reincidencia" class="form-control" style="height:70px;"><?php echo isset($_POST['acciones_no_reincidencia']) ? htmlspecialchars($_POST['acciones_no_reincidencia']) : ''; ?></textarea>
                             </div>
 
                             <div class="mt-3">
-                                <label class="coaching_label" for="aspectos_relevantes">Aspectos relevantes de la retroalimentación</label>
+                                <label class="coaching_label" for="aspectos_relevantes">Aspectos relevantes de la retroalimentación <span style="font-weight:normal;color:#6E6E6E;font-size:10px;">(opcional)</span></label>
                                 <textarea name="aspectos_relevantes" id="aspectos_relevantes" class="form-control" style="height:70px;"><?php echo isset($_POST['aspectos_relevantes']) ? htmlspecialchars($_POST['aspectos_relevantes']) : ''; ?></textarea>
                             </div>
 
@@ -192,12 +216,14 @@
                                 <textarea name="observaciones" id="observaciones" class="form-control" style="height:50px;"><?php echo isset($_POST['observaciones']) ? htmlspecialchars($_POST['observaciones']) : ''; ?></textarea>
                             </div>
 
-                            <div class="form-check mt-3">
-                                <input class="form-check-input" type="checkbox" id="confirma_claridad" name="confirma_claridad" <?php echo isset($_POST['confirma_claridad']) ? 'checked' : ''; ?>>
-                                <label class="form-check-label" for="confirma_claridad" style="font-size:12px;">
+                            <div class="coaching_confirmacion <?php echo isset($errores_campo['confirma_claridad']) ? 'error' : ''; ?>" id="caja_confirmacion">
+                                <input type="checkbox" id="confirma_claridad" name="confirma_claridad" required <?php echo isset($_POST['confirma_claridad']) ? 'checked' : ''; ?>>
+                                <label for="confirma_claridad">
                                     Confirmo que la retroalimentación fue clara y entendí lo esperado.
+                                    <?php if (isset($errores_campo['confirma_claridad'])): ?>
+                                        <div class="coaching_campo_error_texto mt-1"><?php echo $errores_campo['confirma_claridad']; ?></div>
+                                    <?php endif; ?>
                                 </label>
-                                <?php if (isset($errores_campo['confirma_claridad'])): ?><div class="coaching_campo_error_texto"><?php echo $errores_campo['confirma_claridad']; ?></div><?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -206,6 +232,9 @@
                         <button type="submit" name="guardar_registro" id="btn_guardar" class="btn-corp px-4 py-2" style="border-radius:5px; border:0; min-width:220px;">
                             <span class="fas fa-paper-plane"></span> Enviar respuesta
                         </button>
+                        <p class="descripcion-seccion-conocimiento mt-2 mb-0">
+                            Una vez enviada, no podrá editar su respuesta.
+                        </p>
                     </div>
                 </form>
             </div>
@@ -213,6 +242,15 @@
 
         <script>
         (function () {
+            var textarea = document.getElementById('compromiso_general');
+            var contador = document.getElementById('contador_compromiso');
+            var LIMITE = 1000;
+            function actualizarContador() {
+                contador.textContent = textarea.value.length + ' / ' + LIMITE;
+            }
+            textarea.addEventListener('input', actualizarContador);
+            actualizarContador();
+
             var form = document.getElementById('form_responder');
             var boton = document.getElementById('btn_guardar');
             form.addEventListener('submit', function () {

@@ -87,6 +87,20 @@
         .coaching_breadcrumb { font-size: 11px; color: #6E6E6E; margin-bottom: 10px; }
         .coaching_breadcrumb a { color: #4CAF50; }
         #btn_generar[disabled] { opacity: .7; cursor: not-allowed; }
+
+        .coaching_doc_icono { text-align: center; padding: 10px 0 15px; }
+        .coaching_doc_icono .fas { font-size: 42px; color: #4CAF50; }
+
+        .coaching_resumen_item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #F0F0F0; }
+        .coaching_resumen_item:last-child { border-bottom: none; }
+        .coaching_resumen_item .fas { width: 16px; text-align: center; }
+        .coaching_resumen_ok { color: #00BF6F; }
+        .coaching_resumen_pendiente { color: #F39C12; }
+
+        .coaching_aviso_pendiente {
+            background: #FFF8E6; border: 1px solid #F39C12; border-radius: 6px;
+            padding: 10px 12px; font-size: 11px; color: #7a5b00; margin-top: 14px; text-align: left;
+        }
     </style>
 </head>
 <body>
@@ -107,25 +121,54 @@
         <div class="row justify-content-center">
             <div class="col-md-6">
                 <div class="cuadro_dash">
-                    <div class="cuadro_dash_titulo p-2"><span class="fas fa-file-pdf"></span> Generar documento</div>
+                    <div class="cuadro_dash_titulo p-2">
+                        <span class="fas fa-file-pdf"></span>
+                        <?php echo $paquete['gce_codigo'] === 'PENDIENTE_FIRMA_AGENTE' ? 'Regenerar documento' : 'Generar documento'; ?>
+                        — <?php echo validar_output($paquete['gct_nombre']); ?>
+                    </div>
                     <div class="p-4 text-center">
-                        <?php if (!$respuesta_agente): ?>
-                            <p style="font-size:12px; color:#6E6E6E;">
-                                El agente todavía no ha registrado su respuesta. El documento se puede generar,
-                                pero mostrará esa sección como pendiente.
-                            </p>
-                        <?php endif; ?>
-                        <p style="font-size:12px;">
-                            Se generará una nueva versión del documento con la retroalimentación, los compromisos
-                            y la respuesta del agente registrados hasta el momento.
+                        <div class="coaching_doc_icono"><span class="fas fa-file-pdf"></span></div>
+
+                        <p style="font-size:12px; color:#333;">
+                            <?php if ($paquete['gce_codigo'] === 'PENDIENTE_FIRMA_AGENTE'): ?>
+                                Ya existe un documento firmable para este paquete. Al generar de nuevo se creará
+                                <strong>una nueva versión</strong> — la anterior queda archivada, nunca se sobrescribe,
+                                y el agente tendrá que firmar la versión más reciente.
+                            <?php else: ?>
+                                Se generará el documento con la información registrada hasta el momento.
+                                Después de esto, el paquete quedará listo para que el agente lo firme.
+                            <?php endif; ?>
                         </p>
-                        <form method="POST" action="" id="form_generar">
+
+                        <div class="text-left mt-3 mb-3" style="border:1px solid #E3E6EA; border-radius:6px; padding:10px 14px;">
+                            <div class="coaching_resumen_item">
+                                <span class="fas fa-check-circle coaching_resumen_ok"></span> Causa raíz y estrategia correctiva
+                            </div>
+                            <div class="coaching_resumen_item">
+                                <span class="fas fa-check-circle <?php echo count($compromisos) > 0 ? 'coaching_resumen_ok' : 'coaching_resumen_pendiente'; ?>"></span>
+                                <?php echo count($compromisos); ?> compromiso(s) registrado(s)
+                            </div>
+                            <div class="coaching_resumen_item">
+                                <span class="fas <?php echo $respuesta_agente ? 'fa-check-circle coaching_resumen_ok' : 'fa-clock coaching_resumen_pendiente'; ?>"></span>
+                                Respuesta del agente <?php echo $respuesta_agente ? 'incluida' : 'pendiente'; ?>
+                            </div>
+                        </div>
+
+                        <?php if (!$respuesta_agente): ?>
+                            <div class="coaching_aviso_pendiente">
+                                <span class="fas fa-info-circle"></span>
+                                El agente todavía no ha respondido — esa sección del documento aparecerá como pendiente.
+                                Puede generarlo igual y volver a regenerarlo después.
+                            </div>
+                        <?php endif; ?>
+
+                        <form method="POST" action="" id="form_generar" class="mt-4">
                             <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($_SESSION['_csrf_token']); ?>">
-                            <button type="submit" name="generar_documento" id="btn_generar" class="btn-corp px-4 py-2" style="border-radius:5px; border:0;">
-                                <span class="fas fa-file-pdf"></span> Generar documento
+                            <button type="submit" name="generar_documento" id="btn_generar" class="btn-corp px-4 py-2 mr-2" style="border-radius:5px; border:0;">
+                                <span class="fas fa-file-pdf"></span> <?php echo $paquete['gce_codigo'] === 'PENDIENTE_FIRMA_AGENTE' ? 'Generar nueva versión' : 'Generar documento'; ?>
                             </button>
+                            <a href="gestion_coaching_ver.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp-2 px-4 py-2 d-inline-block" style="border-radius:5px;">Cancelar</a>
                         </form>
-                        <a href="gestion_coaching_ver.php?reg=<?php echo base64_encode($gcp_id); ?>" class="d-inline-block mt-3" style="font-size:12px;">Cancelar</a>
                     </div>
                 </div>
             </div>

@@ -113,6 +113,38 @@
              LEFT JOIN `tb_administrador_usuario` AS TA ON P.`gcp_agente_id` = TA.`usu_id`
              WHERE {$where_comun} GROUP BY P.`gcp_agente_id` ORDER BY total DESC LIMIT 10", $params, $tipos);
 
+        // Detalle por agente con % de cierre (para el combo barra+línea,
+        // replicando "Indicadores Monitor" del dashboard real de Calidad).
+        $por_agente_detalle = ejecutarConteo($enlace_db,
+            "SELECT TA.`usu_id`, TA.`usu_nombres_apellidos`,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN E.`gce_codigo` = 'CERRADO' THEN 1 ELSE 0 END) AS cerrados
+             FROM `tb_gestion_coaching_paquete` AS P
+             LEFT JOIN `tb_administrador_usuario` AS TA ON P.`gcp_agente_id` = TA.`usu_id`
+             LEFT JOIN `tb_gestion_coaching_estado` AS E ON P.`gcp_estado_id` = E.`gce_id`
+             WHERE {$where_comun} GROUP BY P.`gcp_agente_id` ORDER BY total DESC LIMIT 8", $params, $tipos);
+
+        // Agente x Tipo (para la barra horizontal apilada, replicando
+        // "Gestión Monitores por Matriz" del dashboard real de Calidad).
+        // Nota: la subconsulta interna (usada como tabla derivada, FROM
+        // (...) AS top8) NO puede referenciar el alias "P" de la consulta
+        // externa — MySQL no permite correlacionar tablas derivadas así.
+        // Por eso se genera una copia del filtro con el alias P2 propio.
+        $where_comun_p2 = str_replace('P.`', 'P2.`', $where_comun);
+        $por_agente_tipo = ejecutarConteo($enlace_db,
+            "SELECT TA.`usu_nombres_apellidos`, T.`gct_nombre`, COUNT(*) AS total
+             FROM `tb_gestion_coaching_paquete` AS P
+             LEFT JOIN `tb_administrador_usuario` AS TA ON P.`gcp_agente_id` = TA.`usu_id`
+             LEFT JOIN `tb_gestion_coaching_tipo` AS T ON P.`gcp_tipo_id` = T.`gct_id`
+             WHERE {$where_comun} AND P.`gcp_agente_id` IN (
+                 SELECT gcp_agente_id FROM (
+                     SELECT P2.`gcp_agente_id`, COUNT(*) AS t FROM `tb_gestion_coaching_paquete` AS P2
+                     LEFT JOIN `tb_administrador_usuario` AS TA ON P2.`gcp_agente_id` = TA.`usu_id`
+                     WHERE {$where_comun_p2} GROUP BY P2.`gcp_agente_id` ORDER BY t DESC LIMIT 8
+                 ) AS top8
+             )
+             GROUP BY P.`gcp_agente_id`, P.`gcp_tipo_id` ORDER BY TA.`usu_nombres_apellidos`", array_merge($params, $params), $tipos . $tipos);
+
         $por_lider = ejecutarConteo($enlace_db,
             "SELECT TS.`usu_id`, TS.`usu_nombres_apellidos`, COUNT(*) AS total FROM `tb_gestion_coaching_paquete` AS P
              LEFT JOIN `tb_administrador_usuario` AS TS ON P.`gcp_supervisor_id` = TS.`usu_id`
@@ -157,6 +189,7 @@
             'por_estado' => $por_estado, 'por_tipo' => $por_tipo, 'por_campania' => $por_campania,
             'por_segmento' => $por_segmento, 'categorias_mes' => $categorias_mes, 'datos_mes' => $datos_mes,
             'por_agente' => $por_agente, 'por_lider' => $por_lider, 'compromisos' => $compromisos,
+            'por_agente_detalle' => $por_agente_detalle, 'por_agente_tipo' => $por_agente_tipo,
         ];
     }
 
@@ -166,6 +199,7 @@
     $datos = null;
     if (in_array($vista, ['consolidado', 'lider', 'agente'], true)) {
         $datos = calcularDashboardCoaching($enlace_db, $filtro_alcance_sql, $filtro_extra_sql, $params_finales, $tipos_finales);
+        $pivote_agente_tipo = pivotarAgenteTipo($datos['por_agente_tipo']);
     }
 
     // ---- Lista de líderes para el selector de la pestaña "Seguimiento Líder" ----
@@ -205,6 +239,29 @@
     }
 
     $meses_es_largo = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>'Julio',8=>'Agosto',9=>'Septiembre',10=>'Octubre',11=>'Noviembre',12=>'Diciembre'];
+    $etiqueta_mes_actual = $meses_es_largo[(int) date('n', strtotime($fecha_hasta))] . ' ' . date('Y', strtotime($fecha_hasta));
+
+    /** Pivota agente x tipo -> [{nombre, TIPO1: n, TIPO2: n, ...}] para la barra apilada. */
+    function pivotarAgenteTipo(array $filas): array
+    {
+        $agentes = [];
+        $tipos = [];
+        foreach ($filas as $f) {
+            $nombre = $f['usu_nombres_apellidos'] ?? '—';
+            $tipo = $f['gct_nombre'] ?? 'Sin tipo';
+            $tipos[$tipo] = true;
+            if (!isset($agentes[$nombre])) { $agentes[$nombre] = []; }
+            $agentes[$nombre][$tipo] = (int) $f['total'];
+        }
+        $tipos_lista = array_keys($tipos);
+        $resultado = [];
+        foreach ($agentes as $nombre => $valores) {
+            $fila = ['x' => $nombre];
+            foreach ($tipos_lista as $t) { $fila[$t] = $valores[$t] ?? 0; }
+            $resultado[] = $fila;
+        }
+        return ['agentes' => $resultado, 'tipos' => $tipos_lista];
+    }
     function indicadorHistorico(array $r): string
     {
         if ($r['gcp_origen_tipo'] === 'monitoreo') {
@@ -242,8 +299,8 @@
         .coaching_filtros label { font-size: 11px; font-weight: bold; color: #1A1A1A; display: block; margin-bottom: 3px; }
         .coaching_filtros input, .coaching_filtros select { font-size: 12px; }
 
-        .coaching_grafica_caja { background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 6px; padding: 8px; margin-bottom: 15px; }
-        .coaching_grafica_caja > div { height: 300px; }
+        #grafica_tendencia_mes, #grafica_por_empresa, #grafica_por_estado,
+        #grafica_por_tipo, #grafica_por_segmento, #grafica_compromisos { height: 300px; }
 
         .coaching_tabla_mini td, .coaching_tabla_mini th { font-size: 11px; padding: 5px 8px; }
 
@@ -339,17 +396,29 @@
                 <div class="coaching_kpi"><div class="valor"><?php echo $datos['promedio_cierre'] !== null ? round((float) $datos['promedio_cierre'], 1) : '—'; ?></div><div class="etiqueta">Días prom. cierre</div></div>
             </div>
 
-            <div class="row">
-                <div class="col-md-6"><div class="coaching_grafica_caja"><div id="grafica_tendencia_mes"></div></div></div>
-                <div class="col-md-6"><div class="coaching_grafica_caja"><div id="grafica_por_empresa"></div></div></div>
+            <div class="row p-1">
+                <div class="col-md-6 p-1 fondo-blanco radius-5">
+                    <div id="grafica_tendencia_mes"></div>
+                </div>
+                <div class="col-md-6 p-1 fondo-blanco radius-5">
+                    <div id="grafica_por_empresa"></div>
+                </div>
             </div>
-            <div class="row">
-                <div class="col-md-6"><div class="coaching_grafica_caja"><div id="grafica_por_estado"></div></div></div>
-                <div class="col-md-6"><div class="coaching_grafica_caja"><div id="grafica_por_tipo"></div></div></div>
+            <div class="row p-1">
+                <div class="col-md-6 p-1 fondo-blanco radius-5">
+                    <div id="grafica_por_estado"></div>
+                </div>
+                <div class="col-md-6 p-1 fondo-blanco radius-5">
+                    <div id="grafica_por_tipo"></div>
+                </div>
             </div>
-            <div class="row">
-                <div class="col-md-6"><div class="coaching_grafica_caja"><div id="grafica_por_segmento"></div></div></div>
-                <div class="col-md-6"><div class="coaching_grafica_caja"><div id="grafica_compromisos"></div></div></div>
+            <div class="row p-1">
+                <div class="col-md-6 p-1 fondo-blanco radius-5">
+                    <div id="grafica_por_segmento"></div>
+                </div>
+                <div class="col-md-6 p-1 fondo-blanco radius-5">
+                    <div id="grafica_compromisos"></div>
+                </div>
             </div>
 
             <div class="row">
@@ -395,13 +464,14 @@
 
             <script>
                 anychart.onDocumentReady(function () {
-                    // ---- Tendencia mensual (línea) ----
+                    // ---- Tendencia mensual (línea, con etiquetas de valor) ----
                     var etiquetasMes = <?php echo json_encode($datos['categorias_mes']); ?>;
                     var valoresMes = <?php echo json_encode($datos['datos_mes']); ?>;
                     var datosLinea = etiquetasMes.map(function (cat, i) { return [cat, valoresMes[i]]; });
                     var chartLinea = anychart.line(datosLinea);
                     chartLinea.title('Paquetes creados por mes');
                     chartLinea.getSeries(0).stroke('2 #4CAF50').color('#4CAF50');
+                    chartLinea.getSeries(0).labels().enabled(true);
                     chartLinea.legend(false);
                     chartLinea.container('grafica_tendencia_mes');
                     chartLinea.draw();
@@ -428,6 +498,8 @@
                     ];
                     var chartEstado = anychart.bar(datosEstado);
                     chartEstado.title('Por estado');
+                    chartEstado.getSeries(0).color('#4CAF50');
+                    chartEstado.getSeries(0).labels().enabled(true);
                     chartEstado.legend(false);
                     chartEstado.container('grafica_por_estado');
                     chartEstado.draw();
@@ -441,6 +513,7 @@
                     var chartTipo = anychart.bar(datosTipo);
                     chartTipo.title('Por tipo de paquete');
                     chartTipo.getSeries(0).color('#F39C12');
+                    chartTipo.getSeries(0).labels().enabled(true);
                     chartTipo.legend(false);
                     chartTipo.container('grafica_por_tipo');
                     chartTipo.draw();
@@ -454,20 +527,21 @@
                     var chartSegmento = anychart.bar(datosSegmento);
                     chartSegmento.title('Por segmento');
                     chartSegmento.getSeries(0).color('#175E83');
+                    chartSegmento.getSeries(0).labels().enabled(true);
                     chartSegmento.legend(false);
                     chartSegmento.container('grafica_por_segmento');
                     chartSegmento.draw();
 
                     // ---- Compromisos (donut) ----
                     var datosCompromisos = [
-                        { x: 'Cumplidos', value: <?php echo $datos['compromisos']['Cumplido']; ?> },
-                        { x: 'Pendientes', value: <?php echo $datos['compromisos']['Pendiente']; ?> },
-                        { x: 'No cumplidos', value: <?php echo $datos['compromisos']['No cumplido']; ?> }
+                        { x: 'Cumplidos', value: <?php echo $datos['compromisos']['Cumplido']; ?>, fill: '#00BF6F' },
+                        { x: 'Pendientes', value: <?php echo $datos['compromisos']['Pendiente']; ?>, fill: '#F39C12' },
+                        { x: 'No cumplidos', value: <?php echo $datos['compromisos']['No cumplido']; ?>, fill: '#FF0000' }
                     ];
                     var chartCompromisos = anychart.pie(datosCompromisos);
                     chartCompromisos.title('Compromisos');
                     chartCompromisos.innerRadius('55%');
-                    chartCompromisos.palette(['#00BF6F', '#F39C12', '#FF0000']);
+                    chartCompromisos.labels().format('{%X}: {%Value}');
                     chartCompromisos.legend(true);
                     chartCompromisos.container('grafica_compromisos');
                     chartCompromisos.draw();

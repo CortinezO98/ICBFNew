@@ -26,7 +26,7 @@
 
     // Datos principales del paquete
     $consulta_paquete = $enlace_db->prepare(
-        "SELECT P.`gcp_id`, P.`gcp_origen_tipo`, P.`gcp_monitoreo_id`, T.`gct_nombre`, T.`gct_codigo`,
+        "SELECT P.`gcp_id`, P.`gcp_origen_tipo`, P.`gcp_monitoreo_id`, T.`gct_nombre`, T.`gct_codigo`, T.`gct_requiere_respuesta_agente`,
                 E.`gce_nombre`, E.`gce_codigo`,
                 TA.`usu_nombres_apellidos` AS agente_nombre, TA.`usu_id` AS agente_id,
                 TS.`usu_nombres_apellidos` AS supervisor_nombre, TS.`usu_id` AS supervisor_id,
@@ -147,12 +147,12 @@
      * (ver INTEGRACION.md/roadmap), por eso aquí solo se informa, sin
      * enlazar a una pantalla que todavía no existe.
      */
-    function proximoPasoTexto(string $gce_codigo, string $perfil_actual): ?string
+    function proximoPasoTexto(string $gce_codigo, string $perfil_actual, bool $requiere_respuesta = true): ?string
     {
         $mapa = [
             'ASIGNADO'               => 'El supervisor debe iniciar la retroalimentación de este paquete.',
             'PENDIENTE_SUPERVISOR'   => 'El supervisor debe completar la retroalimentación y enviarla al agente.',
-            'PENDIENTE_AGENTE'       => 'El agente debe registrar su respuesta y compromiso.',
+            'PENDIENTE_AGENTE'       => $requiere_respuesta ? 'El agente debe registrar su respuesta y compromiso.' : 'El agente debe acusar recibido del reconocimiento.',
             'RESPONDIDO_AGENTE'      => 'El sistema generará el documento para firma del agente.',
             'PENDIENTE_FIRMA_AGENTE' => 'El agente debe firmar el documento generado.',
             'EN_SEGUIMIENTO'         => 'El supervisor debe hacer seguimiento a los compromisos pendientes.',
@@ -161,7 +161,7 @@
         return $mapa[$gce_codigo] ?? null;
     }
 
-    $proximo_paso = proximoPasoTexto($paquete['gce_codigo'], $perfil_coaching);
+    $proximo_paso = proximoPasoTexto($paquete['gce_codigo'], $perfil_coaching, (int) $paquete['gct_requiere_respuesta_agente'] === 1);
 
     // Días restantes / vencido, para el indicador de fecha límite.
     $dias_restantes = null;
@@ -300,8 +300,10 @@
                     <a href="gestion_coaching_retroalimentacion.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Iniciar retroalimentación</a>
                 <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_SUPERVISOR' && $perfil_coaching === 'Supervisor'): ?>
                     <a href="gestion_coaching_retroalimentacion.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Continuar retroalimentación</a>
-                <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_AGENTE' && $perfil_coaching === 'Agente'): ?>
+                <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_AGENTE' && $perfil_coaching === 'Agente' && (int) $paquete['gct_requiere_respuesta_agente'] === 1): ?>
                     <a href="gestion_coaching_responder_agente.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Responder</a>
+                <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_AGENTE' && $perfil_coaching === 'Agente'): ?>
+                    <a href="gestion_coaching_acuse_recibo.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Acusar recibido</a>
                 <?php elseif ($paquete['gce_codigo'] === 'RESPONDIDO_AGENTE' && in_array($perfil_coaching, ['Supervisor', 'Gestor', 'Administrador'], true)): ?>
                     <a href="gestion_coaching_documento_generar.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Generar documento</a>
                 <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_FIRMA_AGENTE' && $perfil_coaching === 'Agente'): ?>
