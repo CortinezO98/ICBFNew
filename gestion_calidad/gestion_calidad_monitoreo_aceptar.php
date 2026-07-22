@@ -4,6 +4,7 @@
 
     require_once("../config/validaciones_seguridad.php");
 	require_once("../config/conexion_db.php");
+    require_once("../gestion_coaching/lib/coaching_disparador.php");
 
     /*DEFINICIÓN DE VARIABLES*/
     $titulo_header = "Monitoreos | Aceptar";
@@ -106,6 +107,11 @@
                         //insert log eventos
                         $respuesta_accion = "<script type='text/javascript'>alertify.success('¡Registro creado exitosamente!', 0);</script>";
                         $_SESSION['registro_creado_cambio_estado']=1;
+
+                        // Enganche del módulo de Coaching (Modelo 1): la nota
+                        // puede volverse "final" justo en este punto (pasa de
+                        // Pendiente a Aceptado). Nunca afecta este flujo si falla.
+                        evaluarDisparoCoachingAutomatico($enlace_db, $id_registro, $estado, $_SESSION['usu_id']);
                     } else {
                         $respuesta_accion = "<script type='text/javascript'>alertify.warning('¡Problemas al crear el registro, por favor verifique e intente nuevamente!', 0);</script>";
                     }
@@ -347,3 +353,4 @@
     </script>
 </body>
 </html>
+

@@ -77,6 +77,20 @@
         </li>
         <?php endif; ?>
 
+        <?php if (isset($_SESSION['modulos_acceso_permisos']['Coaching']) AND $_SESSION['modulos_acceso_permisos']['Coaching']!=""): ?>
+        <li class="submenu"><a href="#"><div class="opcion_icon"><span class="fas fa-graduation-cap"></span></div><p class="texto_menu">Coaching<span class="fas fa-chevron-down submenu_icon"></span></p></a>
+            <ul>
+                <li><a href="../gestion_coaching/gestion_coaching.php?pagina=1&id=null&est=Pendientes"><div class="opcion_icon"><span class="fas fa-inbox"></span></div><p class="texto_menu">Mis paquetes</p></a></li>
+            </ul>
+            <?php if (isset($_SESSION['modulos_acceso_permisos']['Coaching-Reportes']) AND $_SESSION['modulos_acceso_permisos']['Coaching-Reportes']!=""): ?>
+            <ul>
+                <li><a href="../gestion_coaching/gestion_coaching_estadisticas.php"><div class="opcion_icon"><span class="fas fa-chart-pie"></span></div><p class="texto_menu">Estadísticas</p></a></li>
+                <li><a href="../gestion_coaching/gestion_coaching_reporte.php"><div class="opcion_icon"><span class="fas fa-file-alt"></span></div><p class="texto_menu">Reporte</p></a></li>
+            </ul>
+            <?php endif; ?>
+        </li>
+        <?php endif; ?>
+
         <?php if (isset($_SESSION['modulos_acceso_permisos']['Gestión Turnos']) AND $_SESSION['modulos_acceso_permisos']['Gestión Turnos']!=""): ?>
         <li class="submenu"><a href="#"><div class="opcion_icon"><span class="fas fa-calendar-alt"></span></div><p class="texto_menu">Gestión Turnos<span class="fas fa-chevron-down submenu_icon"></span></p></a>
             <ul>

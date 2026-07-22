@@ -4,6 +4,10 @@ $modulo_plataforma="Calidad-Monitoreos";
 
 require_once("../config/validaciones_seguridad.php");
 require_once("../config/conexion_db.php");
+require_once("../gestion_coaching/lib/coaching_disparador.php");
+
+// error_reporting(E_ALL);
+// ini_set('display_errors', '1');
 
 /* =========================
    Helpers de seguridad
@@ -18,6 +22,13 @@ if (!function_exists('hbr')) {
         return nl2br(h($value));
     }
 }
+
+/* ==========================================================
+   ✅ FEATURE FLAG: Calibración (temporalmente deshabilitada)
+   - No afecta el flujo normal de "En línea" / "Grabación"
+   - Evita que se creen registros cuando tipo_monitoreo=Calibración
+   ========================================================== */
+$CALIBRACION_HABILITADA = false;
 
 // Inicializaciones para evitar warnings (no afecta funcionalidad)
 if (!isset($_SESSION['monitoreo_creado'])) { $_SESSION['monitoreo_creado'] = 0; }
@@ -42,7 +53,8 @@ if (empty($_SESSION["mon_informacion"]) || empty($_SESSION["mon_informacion"]["a
     exit;
 }
 
-$consulta_string_analista="SELECT `usu_id`, `usu_nombres_apellidos`, `usu_fecha_incorporacion`, `usu_piloto` FROM `tb_administrador_usuario` WHERE `usu_id`=?";
+$consulta_string_analista="SELECT `usu_id`, `usu_nombres_apellidos`, `usu_fecha_incorporacion`, `usu_piloto`
+FROM `tb_administrador_usuario` WHERE `usu_id`=?";
 
 $consulta_registros_analistas = $enlace_db->prepare($consulta_string_analista);
 $consulta_registros_analistas->bind_param("s", $_SESSION["mon_informacion"]["analista"]);
@@ -77,544 +89,570 @@ if(isset($_POST["guardar_monitoreo"])){
         $gcm_aplica_indicador=$_SESSION["mon_informacion"]["indicador"];
         $gcm_encuesta=$_SESSION["mon_informacion"]["encuesta"];
 
-        $_SESSION["mon_informacion"]["observaciones"]=validar_input($_POST['observaciones'] ?? '');
-        $gcm_observaciones_monitoreo=$_SESSION["mon_informacion"]["observaciones"];
+        // ==========================================================
+        // ✅ BLOQUEO TEMPORAL: "Calibración" deshabilitado
+        // - No cambia nada para los otros tipos
+        // - Evita creación de registros (y evita tocar tablas gcm*)
+        // ==========================================================
+        if (!$CALIBRACION_HABILITADA && (string)$gcm_tipo_monitoreo === 'Calibración') {
 
-        $items_matriz = isset($_POST['id_campos']) ? (array)$_POST['id_campos'] : [];
-        $grupo_peso   = isset($_POST['grupo_peso']) ? (array)$_POST['grupo_peso'] : [];
-        $peso_nota    = isset($_POST['peso_nota']) ? (array)$_POST['peso_nota'] : [];
-        $tipo_error   = isset($_POST['tipo_error']) ? (array)$_POST['tipo_error'] : [];
+            // Mantener estado seguro (sin “monitoreo creado”)
+            $_SESSION['monitoreo_creado'] = 0;
+            $_SESSION['id_monitoreo'] = '';
 
-        $peso_sla_ecuf = $_POST['peso_sla_ecuf'] ?? 0;
-        $peso_sla_enc  = $_POST['peso_sla_enc'] ?? 0;
-        $peso_sla_ecn  = $_POST['peso_sla_ecn'] ?? 0;
+            $respuesta_accion = "<script type='text/javascript'>
+                alertify.warning('La opción <b>Calibración</b> está temporalmente deshabilitada mientras inicia la operación. Por favor seleccione <b>En línea</b> o <b>Grabación</b>.', 0);
+            </script>";
 
-        // Inicializaciones para evitar notices
-        $grupos_items_nota = [];
-        $grupos_peso_id = [];
-        $item_respuesta = [];
-        $item_id_respuesta = [];
-        $item_comentario = [];
-        $item_calificable_tipo_error = [];
+        } else {
 
-        $grupos_tipo_error=array_values(array_unique($tipo_error));
+            $_SESSION["mon_informacion"]["observaciones"]=validar_input($_POST['observaciones'] ?? '');
+            $gcm_observaciones_monitoreo=$_SESSION["mon_informacion"]["observaciones"];
 
-        for ($i=0; $i < count($items_matriz); $i++) {
+            $items_matriz = isset($_POST['id_campos']) ? (array)$_POST['id_campos'] : [];
+            $grupo_peso   = isset($_POST['grupo_peso']) ? (array)$_POST['grupo_peso'] : [];
+            $peso_nota    = isset($_POST['peso_nota']) ? (array)$_POST['peso_nota'] : [];
+            $tipo_error   = isset($_POST['tipo_error']) ? (array)$_POST['tipo_error'] : [];
 
-            $gp = $grupo_peso[$i] ?? '';
-            $pe = $peso_nota[$i] ?? 0;
-            $te = $tipo_error[$i] ?? '';
+            $peso_sla_ecuf = $_POST['peso_sla_ecuf'] ?? 0;
+            $peso_sla_enc  = $_POST['peso_sla_enc'] ?? 0;
+            $peso_sla_ecn  = $_POST['peso_sla_ecn'] ?? 0;
 
-            if ($gp!="") {
-                $grupos_items_nota['G-'.$gp]=100;
-                $grupos_peso_id[]='G-'.$gp;
-            }
+            // Inicializaciones para evitar notices
+            $grupos_items_nota = [];
+            $grupos_peso_id = [];
+            $item_respuesta = [];
+            $item_id_respuesta = [];
+            $item_comentario = [];
+            $item_calificable_tipo_error = [];
 
-            if (isset($_POST['respuesta_'.$items_matriz[$i]])) {
-                $item_respuesta[]=$_POST['respuesta_'.$items_matriz[$i]];
-                $item_id_respuesta[$items_matriz[$i]]=$_POST['respuesta_'.$items_matriz[$i]];
-            } else {
-                $item_respuesta[]="";
-                $item_id_respuesta[$items_matriz[$i]]="";
-            }
+            $grupos_tipo_error=array_values(array_unique($tipo_error));
 
-            // ✅ FIX RECOMENDACIÓN: sanitizar comentarios (evita Stored XSS) SIN cambiar lógica
-            if (isset($_POST['comentario_'.$items_matriz[$i]])) {
-                $item_comentario[] = validar_input($_POST['comentario_'.$items_matriz[$i]]);
-            } else {
-                $item_comentario[] = "";
-            }
-        }
+            for ($i=0; $i < count($items_matriz); $i++) {
 
-        $grupos_peso_id=array_values(array_unique($grupos_peso_id));
+                $gp = $grupo_peso[$i] ?? '';
+                $pe = $peso_nota[$i] ?? 0;
+                $te = $tipo_error[$i] ?? '';
 
-        for ($i=0; $i < count($items_matriz); $i++) {
-
-            $gp = $grupo_peso[$i] ?? '';
-            $pe = $peso_nota[$i] ?? 0;
-            $te = $tipo_error[$i] ?? '';
-
-            if ($gp=="") {
-                if ($item_respuesta[$i]=="No") {
-                    $item_calificable_tipo_error[$te][$items_matriz[$i]]=0;
-                } else {
-                    $item_calificable_tipo_error[$te][$items_matriz[$i]]=$pe;
+                if ($gp!="") {
+                    $grupos_items_nota['G-'.$gp]=100;
+                    $grupos_peso_id[]='G-'.$gp;
                 }
-            } else {
-                $item_calificable_tipo_error[$te]['G-'.$gp]=$pe;
+
+                if (isset($_POST['respuesta_'.$items_matriz[$i]])) {
+                    $item_respuesta[]=$_POST['respuesta_'.$items_matriz[$i]];
+                    $item_id_respuesta[$items_matriz[$i]]=$_POST['respuesta_'.$items_matriz[$i]];
+                } else {
+                    $item_respuesta[]="";
+                    $item_id_respuesta[$items_matriz[$i]]="";
+                }
+
+                // ✅ FIX RECOMENDACIÓN: sanitizar comentarios (evita Stored XSS) SIN cambiar lógica
+                if (isset($_POST['comentario_'.$items_matriz[$i]])) {
+                    $item_comentario[] = validar_input($_POST['comentario_'.$items_matriz[$i]]);
+                } else {
+                    $item_comentario[] = "";
+                }
             }
 
-            if ($gp!="" and $item_respuesta[$i]=="No") {
-                $grupos_items_nota['G-'.$gp]=0;
-            }
-        }
+            $grupos_peso_id=array_values(array_unique($grupos_peso_id));
 
-        for ($i=0; $i < count($grupos_peso_id); $i++) {
-            for ($j=0; $j < count($tipo_error); $j++) {
-                if (isset($item_calificable_tipo_error[$tipo_error[$j]][$grupos_peso_id[$i]])) {
-                    if (($grupos_items_nota[$grupos_peso_id[$i]] ?? 100)==0) {
-                        $item_calificable_tipo_error[$tipo_error[$j]][$grupos_peso_id[$i]]=0;
+            for ($i=0; $i < count($items_matriz); $i++) {
+
+                $gp = $grupo_peso[$i] ?? '';
+                $pe = $peso_nota[$i] ?? 0;
+                $te = $tipo_error[$i] ?? '';
+
+                if ($gp=="") {
+                    if ($item_respuesta[$i]=="No") {
+                        $item_calificable_tipo_error[$te][$items_matriz[$i]]=0;
+                    } else {
+                        $item_calificable_tipo_error[$te][$items_matriz[$i]]=$pe;
+                    }
+                } else {
+                    $item_calificable_tipo_error[$te]['G-'.$gp]=$pe;
+                }
+
+                if ($gp!="" and $item_respuesta[$i]=="No") {
+                    $grupos_items_nota['G-'.$gp]=0;
+                }
+            }
+
+            for ($i=0; $i < count($grupos_peso_id); $i++) {
+                for ($j=0; $j < count($tipo_error); $j++) {
+                    if (isset($item_calificable_tipo_error[$tipo_error[$j]][$grupos_peso_id[$i]])) {
+                        if (($grupos_items_nota[$grupos_peso_id[$i]] ?? 100)==0) {
+                            $item_calificable_tipo_error[$tipo_error[$j]][$grupos_peso_id[$i]]=0;
+                        }
                     }
                 }
             }
-        }
 
-        if (isset($item_calificable_tipo_error['ENC'])) {
-            if (count($item_calificable_tipo_error['ENC'])>0) {
-                $gcm_nota_enc=array_sum($item_calificable_tipo_error['ENC']);
+            if (isset($item_calificable_tipo_error['ENC'])) {
+                if (count($item_calificable_tipo_error['ENC'])>0) {
+                    $gcm_nota_enc=array_sum($item_calificable_tipo_error['ENC']);
+                } else {
+                    $gcm_nota_enc="NA";
+                }
             } else {
                 $gcm_nota_enc="NA";
             }
-        } else {
-            $gcm_nota_enc="NA";
-        }
 
-        if (isset($item_calificable_tipo_error['ECU'])) {
-            if (count($item_calificable_tipo_error['ECU'])>0) {
-                $gcm_nota_ecuf=array_sum($item_calificable_tipo_error['ECU']);
+            if (isset($item_calificable_tipo_error['ECU'])) {
+                if (count($item_calificable_tipo_error['ECU'])>0) {
+                    $gcm_nota_ecuf=array_sum($item_calificable_tipo_error['ECU']);
+                } else {
+                    $gcm_nota_ecuf="NA";
+                }
             } else {
                 $gcm_nota_ecuf="NA";
             }
-        } else {
-            $gcm_nota_ecuf="NA";
-        }
 
-        if (isset($item_calificable_tipo_error['ECN'])) {
-            if (count($item_calificable_tipo_error['ECN'])>0) {
-                $gcm_nota_ecn=array_sum($item_calificable_tipo_error['ECN']);
+            if (isset($item_calificable_tipo_error['ECN'])) {
+                if (count($item_calificable_tipo_error['ECN'])>0) {
+                    $gcm_nota_ecn=array_sum($item_calificable_tipo_error['ECN']);
+                } else {
+                    $gcm_nota_ecn="NA";
+                }
             } else {
                 $gcm_nota_ecn="NA";
             }
-        } else {
-            $gcm_nota_ecn="NA";
-        }
 
-        $nota_general=0;
+            $nota_general=0;
 
-        if ($gcm_nota_enc==="NA") {
-            $control_estado_enc=1;
-        } else {
-            $nota_general+=$gcm_nota_enc;
-            $control_estado_enc = ($gcm_nota_enc>=$peso_sla_enc) ? 1 : 0;
-        }
-
-        if ($gcm_nota_ecuf==="NA") {
-            $control_estado_ecuf=1;
-        } else {
-            $nota_general+=$gcm_nota_ecuf;
-            $control_estado_ecuf = ($gcm_nota_ecuf>=$peso_sla_ecuf) ? 1 : 0;
-        }
-
-        if ($gcm_nota_ecn==="NA") {
-            $control_estado_ecn=1;
-        } else {
-            $nota_general+=$gcm_nota_ecn;
-            $control_estado_ecn = ($gcm_nota_ecn>=$peso_sla_ecn) ? 1 : 0;
-        }
-
-        if ($control_estado_enc==1 AND $control_estado_ecuf==1 AND $control_estado_ecn==1) {
-            $gcm_estado="Aceptado";
-        } else {
-            $gcm_estado="Pendiente";
-        }
-
-        if (!empty($resultado_registros_analistas) && ($resultado_registros_analistas[0][3] ?? '')=='Si') {
-            $fecha_aplica_indicador=date('Y-m-d', strtotime('+3 month', strtotime($resultado_registros_analistas[0][2])));
-        } else {
-            $fecha_aplica_indicador=date('Y-m-d', strtotime('+2 month', strtotime($resultado_registros_analistas[0][2] ?? date('Y-m-d'))));
-        }
-
-        // Lógica de indicador (mantiene la funcionalidad original, solo se asigna a variable sin concatenar en SQL)
-        // ================================
-        // NORMALIZACIÓN + REGLA INDICADOR
-        // Prioriza nuevos valores y soporta los viejos
-        // ================================
-        $fecha_gestion_norm = date('Y-m-d', strtotime((string)$gcm_fecha_hora_gestion));
-        $aplica_curva = ($fecha_gestion_norm > $fecha_aplica_indicador);
-
-        // Normaliza el valor seleccionado por el usuario (puede venir con espacios)
-        $ind_user_raw = (string)$gcm_aplica_indicador;
-        $ind_user = preg_replace('/\s+/', ' ', trim($ind_user_raw)); // colapsa espacios
-
-        // Mapa de equivalencias (nuevo -> canónico del backend)
-        $map_ind = [
-            // NUEVOS
-            'Indicador'      => 'Si',                 // equivalente al "Si" viejo
-            'Encuesta'       => 'Encuesta',
-            'No- Curva'      => 'No-Curva Aprendizaje',
-            'No- Supervisor' => 'No-Supervisor',
-            'No- Gestor'     => 'No-Gestor',
-
-            // VIEJOS (compatibilidad)
-            'Si'                    => 'Si',
-            'No-Gestor'             => 'No-Gestor',
-            'No-Formador'           => 'No-Formador',
-            'No-Curva Aprendizaje'  => 'No-Curva Aprendizaje',
-            'No-Supervisor'         => 'No-Supervisor',
-            'No-Cliente'            => 'No-Cliente',
-        ];
-
-        // valor canónico según selección (si no existe, se conserva)
-        $ind_user_can = $map_ind[$ind_user] ?? $ind_user;
-
-        // 1) Reglas por perfil (mantienen lógica original)
-        if ($perfil_modulo === "Cliente") {
-            $gcm_aplica_indicador = 'No-Cliente';
-        } elseif ($perfil_modulo === "Supervisor") {
-            // en tu UI supervisor no ve selector, pero por seguridad dejamos regla
-            $gcm_aplica_indicador = 'No-Supervisor';
-        } elseif ($perfil_modulo === "Formador") {
-            $gcm_aplica_indicador = 'No-Formador';
-        } else {
-            // 2) Reglas por curva / fecha
-            if (!$aplica_curva) {
-                // Si todavía está en curva, manda curva (aunque el usuario haya elegido "Indicador")
-                $gcm_aplica_indicador = 'No-Curva Aprendizaje';
+            if ($gcm_nota_enc==="NA") {
+                $control_estado_enc=1;
             } else {
-                // 3) Fuera de curva: respeta lo elegido si es una causal válida (No-Gestor / Encuesta)
-                // y si no eligió causal, entonces "Si"
-                if (in_array($ind_user_can, ['No-Gestor', 'Encuesta'], true)) {
-                    $gcm_aplica_indicador = $ind_user_can;
-                } else {
-                    $gcm_aplica_indicador = 'Si';
-                }
+                $nota_general+=$gcm_nota_enc;
+                $control_estado_enc = ($gcm_nota_enc>=$peso_sla_enc) ? 1 : 0;
             }
-        }
 
-        $gcm_auditoria='';
-        $gcm_auditoria_responsable='';
+            if ($gcm_nota_ecuf==="NA") {
+                $control_estado_ecuf=1;
+            } else {
+                $nota_general+=$gcm_nota_ecuf;
+                $control_estado_ecuf = ($gcm_nota_ecuf>=$peso_sla_ecuf) ? 1 : 0;
+            }
 
-        if($_SESSION['monitoreo_creado']!=1){
+            if ($gcm_nota_ecn==="NA") {
+                $control_estado_ecn=1;
+            } else {
+                $nota_general+=$gcm_nota_ecn;
+                $control_estado_ecn = ($gcm_nota_ecn>=$peso_sla_ecn) ? 1 : 0;
+            }
 
-            // Consecutivo (mantiene lógica original)
-            $consulta_consecutivo = mysqli_query($enlace_db, "SELECT MAX(`gcm_id`) FROM `tb_gestion_calidad_monitoreo`");
-            $resultado_consecutivo = mysqli_fetch_all($consulta_consecutivo);
-            $ultimo_consecutivo=explode('MC', $resultado_consecutivo[0][0] ?? 'MC0000000000');
-            $nuevo_consecutivo=((int)($ultimo_consecutivo[1] ?? 0))+1;
-            $inser_consecutivo="MC".str_pad($nuevo_consecutivo, 10, 0, STR_PAD_LEFT);
+            if ($control_estado_enc==1 AND $control_estado_ecuf==1 AND $control_estado_ecn==1) {
+                $gcm_estado="Aceptado";
+            } else {
+                $gcm_estado="Pendiente";
+            }
 
-            // Prepara la sentencia
-            $sentencia_insert = $enlace_db->prepare("INSERT INTO `tb_gestion_calidad_monitoreo`(`gcm_id`, `gcm_matriz`, `gcm_analista`, `gcm_responsable`, `gcm_fecha_hora_gestion`, `gcm_fecha_hora_cierre`, `gcm_tipo_monitoreo`, `gcm_skill_interaccion`, `gcm_tipo_gestion`, `gcm_segmento`, `gcm_id_sim`, `gcm_id_ani`, `gcm_observaciones_monitoreo`, `gcm_nota_enc`, `gcm_nota_ecn`, `gcm_nota_ecuf`, `gcm_nota_general`, `gcm_nota_enc_estado`, `gcm_nota_ecn_estado`, `gcm_nota_ecuf_estado`, `gcm_estado`, `gcm_aplica_indicador`, `gcm_encuesta`, `gcm_fecha_monitoreo`, `gcm_auditoria`, `gcm_auditoria_responsable`, `gcm_registro_usuario`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            // ==========================================================
+            // ✅ INDICADOR: GUARDAR LO QUE EL USUARIO SELECCIONÓ
+            // - Se elimina el "forzado" a No-Curva Aprendizaje.
+            // - Se respeta exactamente el valor del combo:
+            //   Indicador | Encuesta | No- Curva | No- Supervisor | No- Gestor
+            // - Para compatibilidad, se toleran valores viejos.
+            // ==========================================================
 
-            // Agrega variables a sentencia preparada
-            $sentencia_insert->bind_param(
-                'sssssssssssssssssssssssssss',
-                $inser_consecutivo, $gcm_matriz, $gcm_analista, $gcm_responsable, $gcm_fecha_hora_gestion, $duracion,
-                $gcm_tipo_monitoreo, $gcm_skill_interaccion, $gcm_tipo_gestion, $gcm_segmento, $gcm_id_sim, $gcm_id_ani,
-                $gcm_observaciones_monitoreo, $gcm_nota_enc, $gcm_nota_ecn, $gcm_nota_ecuf, $nota_general,
-                $control_estado_enc, $control_estado_ecn, $control_estado_ecuf,
-                $gcm_estado, $gcm_aplica_indicador, $gcm_encuesta, $gcm_fecha_monitoreo, $gcm_auditoria, $gcm_auditoria_responsable,
-                $_SESSION['usu_id']
-            );
+            $ind_user_raw = (string)$gcm_aplica_indicador;
+            $ind_user = preg_replace('/\s+/', ' ', trim($ind_user_raw));
 
-            if ($sentencia_insert->execute()) {
+            // Normalización suave (solo corrige formatos viejos, sin imponer "No-Curva Aprendizaje")
+            $map_ind = [
+                // Valores del combo actual (se conservan igual)
+                'Indicador'      => 'Indicador',
+                'Encuesta'       => 'Encuesta',
+                'No- Curva'      => 'No- Curva',
+                'No- Supervisor' => 'No- Supervisor',
+                'No- Gestor'     => 'No- Gestor',
 
-                $_SESSION['id_monitoreo']=$inser_consecutivo;
-                $control_insert=0;
+                // Valores viejos que podrían venir de sesión / edición (se llevan al formato del combo)
+                'Si'                   => 'Indicador',
+                'No-Gestor'            => 'No- Gestor',
+                'No-Supervisor'        => 'No- Supervisor',
+                'No-Curva Aprendizaje' => 'No- Curva',
+
+                // Otros históricos (si existen en BD, los respetamos tal cual)
+                'No-Formador'          => 'No-Formador',
+                'No-Cliente'           => 'No-Cliente',
+            ];
+
+            $ind_user_can = $map_ind[$ind_user] ?? $ind_user;
+
+            // Lista válida (del combo + compat)
+            $allowed_ind = [
+                'Indicador',
+                'Encuesta',
+                'No- Curva',
+                'No- Supervisor',
+                'No- Gestor',
+                // compat históricos (por si llegan por sesión/BD)
+                'No-Formador',
+                'No-Cliente',
+            ];
+
+            // Si no viene nada, por defecto "Indicador"
+            if ($ind_user_can === '') {
+                $ind_user_can = 'Indicador';
+            }
+
+            // Si llega algo raro, no rompemos: lo dejamos como "Indicador"
+            if (!in_array($ind_user_can, $allowed_ind, true)) {
+                $ind_user_can = 'Indicador';
+            }
+
+            // Si el perfil NO puede elegir en el formulario, mantén lógica por rol (no rompe UX)
+            // Nota: en tu informacion.php el combo solo aparece para Gestor/Administrador/Formador.
+            if ($perfil_modulo === "Cliente") {
+                $gcm_aplica_indicador = 'No-Cliente';
+            } elseif ($perfil_modulo === "Supervisor") {
+                $gcm_aplica_indicador = 'No- Supervisor';
+            } elseif ($perfil_modulo === "Formador") {
+                // Si Formador lo elige (en tu form SI aparece), se respeta.
+                // Solo si llegara vacío, cae en default Indicador.
+                $gcm_aplica_indicador = $ind_user_can;
+            } else {
+                // Admin / Gestor / otros: SIEMPRE respeta lo elegido
+                $gcm_aplica_indicador = $ind_user_can;
+            }
+
+            $gcm_auditoria='';
+            $gcm_auditoria_responsable='';
+
+            if($_SESSION['monitoreo_creado']!=1){
+
+                // Consecutivo (mantiene lógica original)
+                $consulta_consecutivo = mysqli_query($enlace_db, "SELECT MAX(`gcm_id`) FROM `tb_gestion_calidad_monitoreo`");
+                $resultado_consecutivo = mysqli_fetch_all($consulta_consecutivo);
+                $ultimo_consecutivo=explode('MC', $resultado_consecutivo[0][0] ?? 'MC0000000000');
+                $nuevo_consecutivo=((int)($ultimo_consecutivo[1] ?? 0))+1;
+                $inser_consecutivo="MC".str_pad($nuevo_consecutivo, 10, 0, STR_PAD_LEFT);
 
                 // Prepara la sentencia
-                $sentencia_insert_calificaciones = $enlace_db->prepare("INSERT INTO `tb_gestion_calidad_monitoreo_calificaciones`(`gcmc_monitoreo`, `gcmc_pregunta`, `gcmc_respuesta`, `gcmc_afectaciones`, `gcmc_comentarios`) VALUES (?,?,?,?,?)");
+                $sentencia_insert = $enlace_db->prepare("INSERT INTO `tb_gestion_calidad_monitoreo`(`gcm_id`, `gcm_matriz`, `gcm_analista`, `gcm_responsable`, `gcm_fecha_hora_gestion`, `gcm_fecha_hora_cierre`, `gcm_tipo_monitoreo`, `gcm_skill_interaccion`, `gcm_tipo_gestion`, `gcm_segmento`, `gcm_id_sim`, `gcm_id_ani`, `gcm_observaciones_monitoreo`, `gcm_nota_enc`, `gcm_nota_ecn`, `gcm_nota_ecuf`, `gcm_nota_general`, `gcm_nota_enc_estado`, `gcm_nota_ecn_estado`, `gcm_nota_ecuf_estado`, `gcm_estado`, `gcm_aplica_indicador`, `gcm_encuesta`, `gcm_fecha_monitoreo`, `gcm_auditoria`, `gcm_auditoria_responsable`, `gcm_registro_usuario`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 
-                for ($i=0; $i < count($items_matriz); $i++) {
-                    $item_matriz_pregunta=$items_matriz[$i];
-                    $afectaciones="";
-                    $respuesta_item=$item_respuesta[$i];
+                // Agrega variables a sentencia preparada
+                $sentencia_insert->bind_param(
+                    'sssssssssssssssssssssssssss',
+                    $inser_consecutivo, $gcm_matriz, $gcm_analista, $gcm_responsable, $gcm_fecha_hora_gestion, $duracion,
+                    $gcm_tipo_monitoreo, $gcm_skill_interaccion, $gcm_tipo_gestion, $gcm_segmento, $gcm_id_sim, $gcm_id_ani,
+                    $gcm_observaciones_monitoreo, $gcm_nota_enc, $gcm_nota_ecn, $gcm_nota_ecuf, $nota_general,
+                    $control_estado_enc, $control_estado_ecn, $control_estado_ecuf,
+                    $gcm_estado, $gcm_aplica_indicador, $gcm_encuesta, $gcm_fecha_monitoreo, $gcm_auditoria, $gcm_auditoria_responsable,
+                    $_SESSION['usu_id']
+                );
 
-                    // ✅ FIX RECOMENDACIÓN: ya viene sanitizado desde arriba, pero mantenemos variable
-                    $comentarios_insert=$item_comentario[$i];
+                if ($sentencia_insert->execute()) {
 
-                    $sentencia_insert_calificaciones->bind_param('sssss', $inser_consecutivo, $item_matriz_pregunta, $respuesta_item, $afectaciones, $comentarios_insert);
+                    $_SESSION['id_monitoreo']=$inser_consecutivo;
+                    $control_insert=0;
 
-                    if ($sentencia_insert_calificaciones->execute()) {
-                        $control_insert++;
+                    // Prepara la sentencia
+                    $sentencia_insert_calificaciones = $enlace_db->prepare("INSERT INTO `tb_gestion_calidad_monitoreo_calificaciones`(`gcmc_monitoreo`, `gcmc_pregunta`, `gcmc_respuesta`, `gcmc_afectaciones`, `gcmc_comentarios`) VALUES (?,?,?,?,?)");
+
+                    for ($i=0; $i < count($items_matriz); $i++) {
+                        $item_matriz_pregunta=$items_matriz[$i];
+                        $afectaciones="";
+                        $respuesta_item=$item_respuesta[$i];
+
+                        // ✅ FIX RECOMENDACIÓN: ya viene sanitizado desde arriba, pero mantenemos variable
+                        $comentarios_insert=$item_comentario[$i];
+
+                        $sentencia_insert_calificaciones->bind_param('sssss', $inser_consecutivo, $item_matriz_pregunta, $respuesta_item, $afectaciones, $comentarios_insert);
+
+                        if ($sentencia_insert_calificaciones->execute()) {
+                            $control_insert++;
+                        }
                     }
-                }
 
-                if (count($items_matriz)==$control_insert) {
-                    $respuesta_accion = "<script type='text/javascript'>alertify.success('Monitoreo creado exitosamente!', 0);</script>";
-                    $_SESSION['monitoreo_creado']=1;
+                    if (count($items_matriz)==$control_insert) {
+                        $respuesta_accion = "<script type='text/javascript'>alertify.success('Monitoreo creado exitosamente!', 0);</script>";
+                        $_SESSION['monitoreo_creado']=1;
 
-                    // ========= Upload seguro (sin cambiar funcionalidad) =========
-                    $dangerous_ext = ['php','phtml','phar','shtml','html','htm','js','jsp','asp','aspx','cgi','pl','sh','bat','cmd','exe','dll'];
+                        // Enganche del módulo de Coaching (Modelo 1): evalúa si
+                        // la nota general amerita crear un paquete automático.
+                        // Nunca lanza excepción hacia aquí ni afecta este flujo:
+                        // ver gestion_coaching/lib/coaching_disparador.php.
+                        evaluarDisparoCoachingAutomatico($enlace_db, $inser_consecutivo, $gcm_estado, $_SESSION['usu_id']);
 
-                    // ✅ FIX RECOMENDACIÓN: límite de tamaño + bloquear extensión vacía (no altera flujo normal)
-                    $max_bytes = 10 * 1024 * 1024; // 10MB
+                        // ========= Upload seguro (sin cambiar funcionalidad) =========
+                        $dangerous_ext = ['php','phtml','phar','shtml','html','htm','js','jsp','asp','aspx','cgi','pl','sh','bat','cmd','exe','dll'];
 
-                    $guardar_archivo = function($file_array, $key, $prefijo) use ($enlace_db, $inser_consecutivo, $dangerous_ext, $max_bytes, &$documento_cantidad, &$documento_registrados) {
-                        if (empty($file_array["name"][$key])) {
-                            return 1;
-                        }
+                        // ✅ FIX RECOMENDACIÓN: límite de tamaño + bloquear extensión vacía (no altera flujo normal)
+                        $max_bytes = 10 * 1024 * 1024; // 10MB
 
-                        $documento_cantidad++;
-
-                        $ruta_guardar="storage/".$inser_consecutivo;
-                        if (!file_exists($ruta_guardar)) {
-                            mkdir($ruta_guardar, 0755, true);
-                        }
-
-                        $original = (string)$file_array['name'][$key];
-                        $base = basename($original);
-                        $base = preg_replace('/[^A-Za-z0-9._-]/', '_', $base);
-                        $base = substr($base, 0, 180);
-
-                        $archivo_extension = strtolower(pathinfo($base, PATHINFO_EXTENSION));
-
-                        // Bloqueo de extensión vacía (evita archivos "sin tipo")
-                        if ($archivo_extension === '' || $archivo_extension === '.') {
-                            return 0;
-                        }
-
-                        // Bloqueo de extensiones peligrosas (no debería afectar soportes reales)
-                        if ($archivo_extension !== '' && in_array($archivo_extension, $dangerous_ext, true)) {
-                            return 0;
-                        }
-
-                        // Límite de tamaño (no debería afectar soportes reales)
-                        if (($file_array["size"][$key] ?? 0) > $max_bytes) {
-                            return 0;
-                        }
-
-                        $nombre_soporte_1 = $inser_consecutivo."-".$prefijo."-".$base;
-                        $ruta_final = $ruta_guardar."/".$nombre_soporte_1;
-
-                        if (($file_array["error"][$key] ?? 0) > 0) {
-                            return 0;
-                        }
-
-                        if (!is_uploaded_file($file_array['tmp_name'][$key])) {
-                            return 0;
-                        }
-
-                        if (move_uploaded_file($file_array['tmp_name'][$key], $ruta_final)) {
-
-                            $consulta_registro_soporte_insert = $enlace_db->prepare(
-                                "INSERT INTO `tb_gestion_calidad_monitoreo_soportes`(`gcms_monitoreo`, `gcms_nombre`, `gcms_ruta`, `gcms_extension`, `gcms_registro_usuario`) VALUES (?,?,?,?,?);"
-                            );
-
-                            $consulta_registro_soporte_insert->bind_param('sssss', $inser_consecutivo, $nombre_soporte_1, $ruta_final, $archivo_extension, $_SESSION['usu_id']);
-
-                            if ($consulta_registro_soporte_insert->execute()) {
-                                $documento_registrados++;
+                        $guardar_archivo = function($file_array, $key, $prefijo) use ($enlace_db, $inser_consecutivo, $dangerous_ext, $max_bytes, &$documento_cantidad, &$documento_registrados) {
+                            if (empty($file_array["name"][$key])) {
                                 return 1;
                             }
+
+                            $documento_cantidad++;
+
+                            $ruta_guardar="storage/".$inser_consecutivo;
+                            if (!file_exists($ruta_guardar)) {
+                                mkdir($ruta_guardar, 0755, true);
+                            }
+
+                            $original = (string)$file_array['name'][$key];
+                            $base = basename($original);
+                            $base = preg_replace('/[^A-Za-z0-9._-]/', '_', $base);
+                            $base = substr($base, 0, 180);
+
+                            $archivo_extension = strtolower(pathinfo($base, PATHINFO_EXTENSION));
+
+                            if ($archivo_extension === '' || $archivo_extension === '.') {
+                                return 0;
+                            }
+                            if ($archivo_extension !== '' && in_array($archivo_extension, $dangerous_ext, true)) {
+                                return 0;
+                            }
+                            if (($file_array["size"][$key] ?? 0) > $max_bytes) {
+                                return 0;
+                            }
+
+                            $nombre_soporte_1 = $inser_consecutivo."-".$prefijo."-".$base;
+                            $ruta_final = $ruta_guardar."/".$nombre_soporte_1;
+
+                            if (($file_array["error"][$key] ?? 0) > 0) {
+                                return 0;
+                            }
+                            if (!is_uploaded_file($file_array['tmp_name'][$key])) {
+                                return 0;
+                            }
+
+                            if (move_uploaded_file($file_array['tmp_name'][$key], $ruta_final)) {
+
+                                $consulta_registro_soporte_insert = $enlace_db->prepare(
+                                    "INSERT INTO `tb_gestion_calidad_monitoreo_soportes`(`gcms_monitoreo`, `gcms_nombre`, `gcms_ruta`, `gcms_extension`, `gcms_registro_usuario`) VALUES (?,?,?,?,?);"
+                                );
+
+                                $consulta_registro_soporte_insert->bind_param('sssss', $inser_consecutivo, $nombre_soporte_1, $ruta_final, $archivo_extension, $_SESSION['usu_id']);
+
+                                if ($consulta_registro_soporte_insert->execute()) {
+                                    $documento_registrados++;
+                                    return 1;
+                                }
+                                return 0;
+                            }
                             return 0;
-                        }
-                        return 0;
-                    };
+                        };
 
-                    if (isset($_FILES["documento"]) && isset($_FILES["documento"]['tmp_name']) && is_array($_FILES["documento"]['tmp_name'])) {
-                        foreach($_FILES["documento"]['tmp_name'] as $key => $tmp_name) {
-                            $ok = $guardar_archivo($_FILES["documento"], $key, "documento");
-                            if (!$ok) {
-                                $respuesta_accion = "<script type='text/javascript'>alertify.warning('¡Problemas al cargar el documento, por favor verifique e intente nuevamente!', 0);</script>";
-                            }
-                        }
-                    }
-
-                    if (isset($_FILES["documento_llamada"]) && isset($_FILES["documento_llamada"]['tmp_name']) && is_array($_FILES["documento_llamada"]['tmp_name'])) {
-                        foreach($_FILES["documento_llamada"]['tmp_name'] as $key => $tmp_name) {
-                            $ok = $guardar_archivo($_FILES["documento_llamada"], $key, "llamada");
-                            if (!$ok) {
-                                $respuesta_accion = "<script type='text/javascript'>alertify.warning('¡Problemas al cargar el documento, por favor verifique e intente nuevamente!', 0);</script>";
-                            }
-                        }
-                    }
-
-                    //insert log eventos
-                    $consulta_string_log = "INSERT INTO `tb_administrador_log`(`clog_log_modulo`, `clog_log_tipo`, `clog_log_accion`, `clog_log_detalle`, `clog_registro_usuario`) VALUES (?,?,?,?,?)";
-
-                    $log_modulo=$modulo_plataforma;
-                    $log_tipo="crear";
-                    $log_accion="Crear registro";
-                    $log_detalle="Monitoreo Calidad | ".$_SESSION['id_monitoreo'];
-                    $log_usuario=$_SESSION["usu_id"];
-
-                    $consulta_registros_log = $enlace_db->prepare($consulta_string_log);
-                    $consulta_registros_log->bind_param("sssss", $log_modulo, $log_tipo, $log_accion, $log_detalle, $log_usuario);
-                    $consulta_registros_log->execute();
-                    //insert log eventos
-
-                    if ($gcm_estado=='Pendiente' AND $perfil_modulo!="Cliente") {
-
-                        $consulta_string_supervisor="SELECT TU.`usu_id`, TU.`usu_nombres_apellidos`, TL.`usu_id`, TL.`usu_nombres_apellidos`, TL.`usu_correo_corporativo`, TU.`usu_correo_corporativo` FROM `tb_administrador_usuario` AS TU LEFT JOIN `tb_administrador_usuario` AS TL ON TU.`usu_supervisor`=TL.`usu_id` WHERE TU.`usu_id`=?";
-
-                        $consulta_registros_supervisor = $enlace_db->prepare($consulta_string_supervisor);
-                        $consulta_registros_supervisor->bind_param("s", $gcm_analista);
-                        $consulta_registros_supervisor->execute();
-                        $resultado_registros_supervisor = $consulta_registros_supervisor->get_result()->fetch_all(MYSQLI_NUM);
-
-                        if (!empty($resultado_registros_supervisor)) {
-
-                            $array_correo_destino['correos']['TO']=$resultado_registros_supervisor[0][5]."|".$resultado_registros_supervisor[0][1];
-                            $array_correo_destino['correos']['CC']=$resultado_registros_supervisor[0][4]."|".$resultado_registros_supervisor[0][3];
-
-                            $nota_correo_enc  = $control_estado_enc  ? 'CUMPLE' : 'INCUMPLE';
-                            $nota_correo_ecuf = $control_estado_ecuf ? 'CUMPLE' : 'INCUMPLE';
-                            $nota_correo_ecn  = $control_estado_ecn  ? 'CUMPLE' : 'INCUMPLE';
-
-                            // Escapes seguros para HTML de correo
-                            $agente_nombre = h($resultado_registros_supervisor[0][1]);
-                            $contenido_correo="<p style='font-size: 12px; color: #2E2E2E; font-family: Lato, Arial, sans-serif;'>Cordial Saludo,<br><br>Se ha monitoreado al agente ".$agente_nombre.", con los siguientes resultados. Por favor verificar el detalle del monitoreo ingresando al siguiente link: <a href='http://52.188.206.38/' target='_blank'>ICBF-IQGIS</a></p><br>
-                            <center>
-                            <table style='width: 500px; font-size: 13px; font-family: Lato, Arial, sans-serif;'>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id Monitoreo</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($inser_consecutivo) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id Analista</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($resultado_registros_supervisor[0][0]) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nombres y Apellidos</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($resultado_registros_supervisor[0][1]) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Fecha gestión/grabación</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_fecha_hora_gestion) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Tipo monitoreo</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_tipo_monitoreo) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Skill interacción</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_skill_interaccion) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Tipo gestión</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_tipo_gestion) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Segmento</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_segmento) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id SIM</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_id_sim) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id/ANI</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_id_ani) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nota ENC</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($nota_correo_enc) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nota ECUF</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($nota_correo_ecuf) ."</td>
-                                </tr>
-                                <tr>
-                                    <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nota ECN</td>
-                                    <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($nota_correo_ecn) ."</td>
-                                </tr>
-                            </table>
-                            <br>
-                            <table style='width: 100%; background: #2E2E2E; font-family: Lato, Arial, sans-serif;'>
-                                <tr>
-                                    <td style='font-size: 12px; padding: 5px 10px 5px 10px; color: #FFFFFF'>
-                                        IQ-ICBF | Gestión Integrada de Servicios | &copy; Copyright 2020 Todos los derechos reservados.
-                                    </td>
-                                </tr>
-                            </table>
-                            <p style='font-family: Lato, Arial, sans-serif; color: #2E2E2E;'>
-                            Esta es una notificación automática, por favor no responda este mensaje.
-                            </p>
-                            <table>
-                                <tr>
-                                    <td style='width: 50px; height: 73px;'><img src='cid:logo_firma_verde' style='margin: 5px; width: 50px; height: 73px;'></td>
-                                    <td>
-                                        <p style='font-size: 11px; color: #006400; font-family: Lato, Arial, sans-serif;'><br><b>No imprima este mensaje de no ser necesario; de ésta manera aportamos al cuidado del planeta.</b></p>
-                                    </td>
-                                </tr>
-                            </table>
-                            </center>";
-
-                            /*SE CONFIGURAN PARÁMETROS A REGISTRAR EN SISTEMA DE NOTIFICACIÓN*/
-                            $nc_id_modulo="2";
-                            $nc_prioridad="Alta";
-                            $nc_id_set_from="1";
-                            $nc_address=$array_correo_destino['correos']['TO'];
-                            $nc_cc=$array_correo_destino['correos']['CC'];
-                            $nc_bcc="";
-                            $nc_reply_to="";
-                            $nc_subject="Monitoreo Calidad | ".$inser_consecutivo;
-
-                            // Mantengo el comportamiento original del body (solo ya no se concatena en SQL)
-                            $nc_body=str_replace("'", '"', $contenido_correo);
-
-                            $nc_embeddedimage_ruta="/var/www/icbf/html/images/firma-verde.png";
-                            $nc_embeddedimage_nombre="logo_firma_verde";
-                            $nc_embeddedimage_tipo="image/png";
-                            $nc_intentos="";
-                            $nc_eliminar="Si";
-                            $nc_estado_envio="Pendiente";
-                            $nc_fecha_envio="";
-                            $nc_usuario_registro=$_SESSION['usu_id'];
-
-                            // ✅ Remediación SQLi: INSERT parametrizado (con reintento como tu lógica)
-                            $sql_notif = "INSERT INTO `tb_notificaciones_central`
-                                (`nc_id_modulo`, `nc_prioridad`, `nc_id_set_from`, `nc_address`, `nc_cc`, `nc_bcc`, `nc_reply_to`,
-                                 `nc_subject`, `nc_body`, `nc_embeddedimage_ruta`, `nc_embeddedimage_nombre`, `nc_embeddedimage_tipo`,
-                                 `nc_intentos`, `nc_eliminar`, `nc_estado_envio`, `nc_fecha_envio`, `nc_usuario_registro`)
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-
-                            $stmt_notif = $enlace_db->prepare($sql_notif);
-
-                            for ($i=0; $i < 5; $i++) {
-                                $ok_notif = false;
-
-                                if ($stmt_notif) {
-                                    $stmt_notif->bind_param(
-                                        "sssssssssssssssss",
-                                        $nc_id_modulo,
-                                        $nc_prioridad,
-                                        $nc_id_set_from,
-                                        $nc_address,
-                                        $nc_cc,
-                                        $nc_bcc,
-                                        $nc_reply_to,
-                                        $nc_subject,
-                                        $nc_body,
-                                        $nc_embeddedimage_ruta,
-                                        $nc_embeddedimage_nombre,
-                                        $nc_embeddedimage_tipo,
-                                        $nc_intentos,
-                                        $nc_eliminar,
-                                        $nc_estado_envio,
-                                        $nc_fecha_envio,
-                                        $nc_usuario_registro
-                                    );
-
-                                    $ok_notif = $stmt_notif->execute();
+                        if (isset($_FILES["documento"]) && isset($_FILES["documento"]['tmp_name']) && is_array($_FILES["documento"]['tmp_name'])) {
+                            foreach($_FILES["documento"]['tmp_name'] as $key => $tmp_name) {
+                                $ok = $guardar_archivo($_FILES["documento"], $key, "documento");
+                                if (!$ok) {
+                                    $respuesta_accion = "<script type='text/javascript'>alertify.warning('¡Problemas al cargar el documento, por favor verifique e intente nuevamente!', 0);</script>";
                                 }
+                            }
+                        }
 
-                                if ($ok_notif) {
-                                    if (function_exists('registro_log')) {
-                                        registro_log($enlace_db, $modulo_plataforma, 'notificacion', $nc_subject);
+                        if (isset($_FILES["documento_llamada"]) && isset($_FILES["documento_llamada"]['tmp_name']) && is_array($_FILES["documento_llamada"]['tmp_name'])) {
+                            foreach($_FILES["documento_llamada"]['tmp_name'] as $key => $tmp_name) {
+                                $ok = $guardar_archivo($_FILES["documento_llamada"], $key, "llamada");
+                                if (!$ok) {
+                                    $respuesta_accion = "<script type='text/javascript'>alertify.warning('¡Problemas al cargar el documento, por favor verifique e intente nuevamente!', 0);</script>";
+                                }
+                            }
+                        }
+
+                        //insert log eventos
+                        $consulta_string_log = "INSERT INTO `tb_administrador_log`(`clog_log_modulo`, `clog_log_tipo`, `clog_log_accion`, `clog_log_detalle`, `clog_registro_usuario`) VALUES (?,?,?,?,?)";
+
+                        $log_modulo=$modulo_plataforma;
+                        $log_tipo="crear";
+                        $log_accion="Crear registro";
+                        $log_detalle="Monitoreo Calidad | ".$_SESSION['id_monitoreo'];
+                        $log_usuario=$_SESSION["usu_id"];
+
+                        $consulta_registros_log = $enlace_db->prepare($consulta_string_log);
+                        $consulta_registros_log->bind_param("sssss", $log_modulo, $log_tipo, $log_accion, $log_detalle, $log_usuario);
+                        $consulta_registros_log->execute();
+                        //insert log eventos
+
+                        if ($gcm_estado=='Pendiente' AND $perfil_modulo!="Cliente") {
+
+                            $consulta_string_supervisor="SELECT TU.`usu_id`, TU.`usu_nombres_apellidos`, TL.`usu_id`, TL.`usu_nombres_apellidos`, TL.`usu_correo_corporativo`, TU.`usu_correo_corporativo`
+                            FROM `tb_administrador_usuario` AS TU
+                            LEFT JOIN `tb_administrador_usuario` AS TL ON TU.`usu_supervisor`=TL.`usu_id`
+                            WHERE TU.`usu_id`=?";
+
+                            $consulta_registros_supervisor = $enlace_db->prepare($consulta_string_supervisor);
+                            $consulta_registros_supervisor->bind_param("s", $gcm_analista);
+                            $consulta_registros_supervisor->execute();
+                            $resultado_registros_supervisor = $consulta_registros_supervisor->get_result()->fetch_all(MYSQLI_NUM);
+
+                            if (!empty($resultado_registros_supervisor)) {
+
+                                $array_correo_destino['correos']['TO']=$resultado_registros_supervisor[0][5]."|".$resultado_registros_supervisor[0][1];
+                                $array_correo_destino['correos']['CC']=$resultado_registros_supervisor[0][4]."|".$resultado_registros_supervisor[0][3];
+
+                                $nota_correo_enc  = $control_estado_enc  ? 'CUMPLE' : 'INCUMPLE';
+                                $nota_correo_ecuf = $control_estado_ecuf ? 'CUMPLE' : 'INCUMPLE';
+                                $nota_correo_ecn  = $control_estado_ecn  ? 'CUMPLE' : 'INCUMPLE';
+
+                                $agente_nombre = h($resultado_registros_supervisor[0][1]);
+                                $contenido_correo="<p style='font-size: 12px; color: #2E2E2E; font-family: Lato, Arial, sans-serif;'>Cordial Saludo,<br><br>Se ha monitoreado al agente ".$agente_nombre.", con los siguientes resultados. Por favor verificar el detalle del monitoreo ingresando al siguiente link: <a href='http://52.188.206.38/' target='_blank'>ICBF-IQGIS</a></p><br>
+                                <center>
+                                <table style='width: 500px; font-size: 13px; font-family: Lato, Arial, sans-serif;'>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id Monitoreo</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($inser_consecutivo) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id Analista</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($resultado_registros_supervisor[0][0]) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nombres y Apellidos</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($resultado_registros_supervisor[0][1]) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Fecha gestión/grabación</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_fecha_hora_gestion) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Tipo monitoreo</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_tipo_monitoreo) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Skill interacción</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_skill_interaccion) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Tipo gestión</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_tipo_gestion) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Segmento</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_segmento) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id SIM</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_id_sim) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Id/ANI</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($gcm_id_ani) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nota ENC</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($nota_correo_enc) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nota ECUF</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($nota_correo_ecuf) ."</td>
+                                    </tr>
+                                    <tr>
+                                        <td style='width: 30%;background-color: #069169; color: #FFFFFF; padding: 5px 5px 5px 5px; text-align: center;'>Nota ECN</td>
+                                        <td style='width: 70%;padding: 5px 5px 5px 5px;background-color: #F2F2F2;'>". h($nota_correo_ecn) ."</td>
+                                    </tr>
+                                </table>
+                                <br>
+                                <table style='width: 100%; background: #2E2E2E; font-family: Lato, Arial, sans-serif;'>
+                                    <tr>
+                                        <td style='font-size: 12px; padding: 5px 10px 5px 10px; color: #FFFFFF'>
+                                            IQ-ICBF | Gestión Integrada de Servicios | &copy; Copyright 2020 Todos los derechos reservados.
+                                        </td>
+                                    </tr>
+                                </table>
+                                <p style='font-family: Lato, Arial, sans-serif; color: #2E2E2E;'>
+                                Esta es una notificación automática, por favor no responda este mensaje.
+                                </p>
+                                <table>
+                                    <tr>
+                                        <td style='width: 50px; height: 73px;'><img src='cid:logo_firma_verde' style='margin: 5px; width: 50px; height: 73px;'></td>
+                                        <td>
+                                            <p style='font-size: 11px; color: #006400; font-family: Lato, Arial, sans-serif;'><br><b>No imprima este mensaje de no ser necesario; de ésta manera aportamos al cuidado del planeta.</b></p>
+                                        </td>
+                                    </tr>
+                                </table>
+                                </center>";
+
+                                /*SE CONFIGURAN PARÁMETROS A REGISTRAR EN SISTEMA DE NOTIFICACIÓN*/
+                                $nc_id_modulo="2";
+                                $nc_prioridad="Alta";
+                                $nc_id_set_from="1";
+                                $nc_address=$array_correo_destino['correos']['TO'];
+                                $nc_cc=$array_correo_destino['correos']['CC'];
+                                $nc_bcc="";
+                                $nc_reply_to="";
+                                $nc_subject="Monitoreo Calidad | ".$inser_consecutivo;
+
+                                $nc_body=str_replace("'", '"', $contenido_correo);
+
+                                $nc_embeddedimage_ruta="/var/www/icbf/html/images/firma-verde.png";
+                                $nc_embeddedimage_nombre="logo_firma_verde";
+                                $nc_embeddedimage_tipo="image/png";
+                                $nc_intentos="";
+                                $nc_eliminar="Si";
+                                $nc_estado_envio="Pendiente";
+                                $nc_fecha_envio="";
+                                $nc_usuario_registro=$_SESSION['usu_id'];
+
+                                $sql_notif = "INSERT INTO `tb_notificaciones_central`
+                                    (`nc_id_modulo`, `nc_prioridad`, `nc_id_set_from`, `nc_address`, `nc_cc`, `nc_bcc`, `nc_reply_to`,
+                                     `nc_subject`, `nc_body`, `nc_embeddedimage_ruta`, `nc_embeddedimage_nombre`, `nc_embeddedimage_tipo`,
+                                     `nc_intentos`, `nc_eliminar`, `nc_estado_envio`, `nc_fecha_envio`, `nc_usuario_registro`)
+                                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+
+                                $stmt_notif = $enlace_db->prepare($sql_notif);
+
+                                for ($i=0; $i < 5; $i++) {
+                                    $ok_notif = false;
+
+                                    if ($stmt_notif) {
+                                        $stmt_notif->bind_param(
+                                            "sssssssssssssssss",
+                                            $nc_id_modulo,
+                                            $nc_prioridad,
+                                            $nc_id_set_from,
+                                            $nc_address,
+                                            $nc_cc,
+                                            $nc_bcc,
+                                            $nc_reply_to,
+                                            $nc_subject,
+                                            $nc_body,
+                                            $nc_embeddedimage_ruta,
+                                            $nc_embeddedimage_nombre,
+                                            $nc_embeddedimage_tipo,
+                                            $nc_intentos,
+                                            $nc_eliminar,
+                                            $nc_estado_envio,
+                                            $nc_fecha_envio,
+                                            $nc_usuario_registro
+                                        );
+
+                                        $ok_notif = $stmt_notif->execute();
                                     }
-                                    break;
+
+                                    if ($ok_notif) {
+                                        if (function_exists('registro_log')) {
+                                            registro_log($enlace_db, $modulo_plataforma, 'notificacion', $nc_subject);
+                                        }
+                                        break;
+                                    }
                                 }
                             }
                         }
+
+                        // Rotación de token después de acción exitosa
+                        $_SESSION['csrf_token_monitoreo'] = bin2hex(random_bytes(32));
                     }
 
-                    // Rotación de token después de acción exitosa
-                    $_SESSION['csrf_token_monitoreo'] = bin2hex(random_bytes(32));
+                } else {
+                    $respuesta_accion = "<script type='text/javascript'>alertify.warning('¡Problemas al crear el monitoreo, por favor verifique e intente nuevamente!', 0);</script>";
                 }
 
             } else {
-                $respuesta_accion = "<script type='text/javascript'>alertify.warning('¡Problemas al crear el monitoreo, por favor verifique e intente nuevamente!', 0);</script>";
+                $respuesta_accion = "<script type='text/javascript'>alertify.success('Monitoreo creado exitosamente, haga clic en <b>Finalizar</b> para salir!', 0);</script>";
             }
-
-        } else {
-            $respuesta_accion = "<script type='text/javascript'>alertify.success('Monitoreo creado exitosamente, haga clic en <b>Finalizar</b> para salir!', 0);</script>";
         }
     }
 }
 
-$consulta_string_matriz="SELECT `gcm_id`, `gcm_nombre_matriz`, `gcm_estado`, `gcm_observaciones`, `gcm_registro_usuario`, `gcm_registro_fecha` FROM `tb_gestion_calidad_matriz` WHERE `gcm_id`=?";
+$consulta_string_matriz="SELECT `gcm_id`, `gcm_nombre_matriz`, `gcm_estado`, `gcm_observaciones`, `gcm_registro_usuario`, `gcm_registro_fecha`
+FROM `tb_gestion_calidad_matriz` WHERE `gcm_id`=?";
 
 $consulta_registros_matriz = $enlace_db->prepare($consulta_string_matriz);
 $consulta_registros_matriz->bind_param("s", $_SESSION["mon_informacion"]["matriz"]);
@@ -638,10 +676,16 @@ include("../menu_header.php");
         <div class="col-md-8 pt-2 background-blanco">
             <div class="row">
                 <div class="col-md-12">
-                    <p class="alert alert-success p-1">¡Se ha generado el monitoreo <?php echo h($_SESSION['id_monitoreo']); ?>!</p>
-                    <?php if ($documento_cantidad!=$documento_registrados): ?>
-                        <p class="alert alert-danger p-1">¡Problemas al cargar algunos soportes, por favor verifique en la bandeja principal!</p>
+
+                    <?php if (!empty($_SESSION['id_monitoreo'])): ?>
+                        <p class="alert alert-success p-1">¡Se ha generado el monitoreo <?php echo h($_SESSION['id_monitoreo']); ?>!</p>
+                        <?php if ($documento_cantidad!=$documento_registrados): ?>
+                            <p class="alert alert-danger p-1">¡Problemas al cargar algunos soportes, por favor verifique en la bandeja principal!</p>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <p class="alert alert-warning p-1">No se generó el monitoreo (operación bloqueada o sesión inválida). Verifique el tipo de monitoreo.</p>
                     <?php endif; ?>
+
                     <div class="form-group">
                         <label for="matriz" class="m-0">Matriz</label>
                         <input type="text" class="form-control form-control-sm" name="matriz" id="matriz" maxlength="50"
@@ -684,6 +728,8 @@ include("../menu_header.php");
                     <div class="form-group">
                         <?php if($_SESSION['monitoreo_creado']==1): ?>
                             <a href="<?php echo h($ruta_cancelar_finalizar); ?>" class="btn btn-dark float-right">Finalizar</a>
+                        <?php else: ?>
+                            <a href="<?php echo h($ruta_cancelar_finalizar); ?>" class="btn btn-dark float-right">Volver</a>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -697,3 +743,5 @@ include("../config/configuracion_js.php");
 ?>
 </body>
 </html>
+
+
