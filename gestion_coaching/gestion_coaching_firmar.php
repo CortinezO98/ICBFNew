@@ -1,218 +1,280 @@
 <?php
-$modulo_plataforma = "Coaching";
+    $modulo_plataforma="Coaching";
 
-require_once("../config/validaciones_seguridad.php");
-require_once("../config/conexion_db.php");
-require_once("lib/coaching_seguridad.php");
-require_once("lib/coaching_datos.php");
-require_once("lib/coaching_firma.php");
+    require_once("../config/validaciones_seguridad.php");
+    require_once("../config/conexion_db.php");
+    require_once("lib/coaching_seguridad.php");
+    require_once("lib/coaching_datos.php");
+    require_once("lib/coaching_firma.php");
 
-$titulo_header = "Coaching | Firmar documento";
+    $titulo_header = "Coaching | Firmar documento";
 
-$perfil_coaching = coachingPerfilUsuarioActual();
-if ($perfil_coaching === null || $perfil_coaching !== "Agente") {
-    header("Location:../permiso_denegado.php");
-    exit;
-}
+    $perfil_coaching = coachingPerfilUsuarioActual();
+    if ($perfil_coaching === null || $perfil_coaching !== 'Agente') {
+        header("Location:../permiso_denegado.php");
+        exit;
+    }
 
-$reg = isset($_GET["reg"]) ? (string) $_GET["reg"] : "";
-$gcp_id_decodificado = base64_decode($reg, true);
-$gcp_id = $gcp_id_decodificado !== false ? validar_input($gcp_id_decodificado) : "";
+    $gcp_id = validar_input(base64_decode($_GET['reg']));
 
-if ($gcp_id === "") {
-    header("Location:gestion_coaching.php?pagina=1&id=null&est=Pendientes");
-    exit;
-}
+    if (!usuarioPuedeVerPaquete($enlace_db, $_SESSION['usu_id'], $perfil_coaching, $gcp_id)) {
+        header("Location:../permiso_denegado.php");
+        exit;
+    }
 
-if (!usuarioPuedeVerPaquete($enlace_db, $_SESSION["usu_id"], $perfil_coaching, $gcp_id)) {
-    header("Location:../permiso_denegado.php");
-    exit;
-}
+    $respuesta_accion = "";
+    $error_general = null;
+    $errores_encuesta = [];
 
-if (empty($_SESSION["_csrf_token"])) {
-    $_SESSION["_csrf_token"] = bin2hex(random_bytes(32));
-}
+    $paquete = obtenerPaqueteConDetalle($enlace_db, $gcp_id);
+    if (!$paquete) {
+        header("Location:gestion_coaching.php?pagina=1&id=null&est=Pendientes");
+        exit;
+    }
+    // La encuesta de percepción solo aplica al formato de Retroalimentación
+    // (así viene en el Word real; Acta/Felicitación no la incluyen).
+    $requiere_encuesta = $paquete['gct_codigo'] === 'RETROALIMENTACION' && !paqueteTieneEncuesta($enlace_db, $gcp_id);
+    $preguntas_encuesta = $requiere_encuesta ? listarPreguntasEncuestaActivas($enlace_db) : [];
 
-$respuesta_accion = "";
+    if (isset($_POST["confirmar_firma"])) {
+        // CSRF: mismo mecanismo ya usado en el resto del sistema
+        $csrf_ok = isset($_POST['_csrf_token'], $_SESSION['_csrf_token'])
+            && hash_equals($_SESSION['_csrf_token'], $_POST['_csrf_token']);
 
-$documento = obtenerDocumentoVigente($enlace_db, $gcp_id, "Retroalimentacion")
-    ?? obtenerDocumentoVigente($enlace_db, $gcp_id, "Acta_Compromiso");
+        if (!$csrf_ok) {
+            $respuesta_accion = "<script type='text/javascript'>alertify.warning('Solicitud inválida (CSRF). Recargue e intente de nuevo.', 0);</script>";
+        } elseif (!isset($_POST['acepto'])) {
+            $error_general = 'Debe marcar la casilla de aceptación antes de firmar.';
+        } else {
+            $respuestas_encuesta = [];
+            if ($requiere_encuesta) {
+                foreach ($preguntas_encuesta as $p) {
+                    $valor = validar_input($_POST['encuesta'][$p['gcep_codigo']] ?? '');
+                    if ($valor === '' || (int) $valor < 1 || (int) $valor > 5) {
+                        $errores_encuesta[$p['gcep_codigo']] = 'Requerido.';
+                    } else {
+                        $respuestas_encuesta[$p['gcep_codigo']] = (int) $valor;
+                    }
+                }
+            }
 
-if (!$documento) {
-    $respuesta_accion = "<div class='alert alert-warning mb-3' role='alert'><span class='fas fa-exclamation-triangle mr-1'></span>No existe un documento vigente disponible para firma.</div>";
-}
-
-if (isset($_POST["confirmar_firma"]) && $documento) {
-    $csrf_ok = isset($_POST["_csrf_token"])
-        && hash_equals((string) $_SESSION["_csrf_token"], (string) $_POST["_csrf_token"]);
-
-    $aceptacion_ok = isset($_POST["aceptacion_documento"])
-        && $_POST["aceptacion_documento"] === "1";
-
-    $gcd_id = filter_input(
-        INPUT_POST,
-        "gcd_id",
-        FILTER_VALIDATE_INT,
-        ["options" => ["min_range" => 1]]
-    );
-
-    if (!$csrf_ok) {
-        $respuesta_accion = "<div class='alert alert-danger mb-3' role='alert'><span class='fas fa-shield-alt mr-1'></span>La sesión de seguridad venció. Recargue la página e intente nuevamente.</div>";
-    } elseif (!$aceptacion_ok) {
-        $respuesta_accion = "<div class='alert alert-warning mb-3' role='alert'><span class='fas fa-info-circle mr-1'></span>Debe leer y aceptar el documento antes de firmarlo.</div>";
-    } elseif ($gcd_id === false || (int) $gcd_id !== (int) $documento["gcd_id"]) {
-        $respuesta_accion = "<div class='alert alert-danger mb-3' role='alert'><span class='fas fa-file mr-1'></span>El documento seleccionado no corresponde con la versión vigente.</div>";
-    } else {
-        try {
-            firmarDocumentoCoaching(
-                $enlace_db,
-                $gcp_id,
-                (int) $gcd_id,
-                $_SESSION["usu_id"],
-                "Agente",
-                $_SERVER["REMOTE_ADDR"] ?? "",
-                $_SERVER["HTTP_USER_AGENT"] ?? null
-            );
-
-            $_SESSION["_csrf_token"] = bin2hex(random_bytes(32));
-
-            $url_destino = "gestion_coaching_ver.php?reg=" . rawurlencode(base64_encode($gcp_id));
-
-            $respuesta_accion = "<div class='alert alert-success mb-3' role='status'><span class='fas fa-check-circle mr-1'></span>Documento firmado correctamente. Estamos regresando al detalle del paquete.</div><script>window.setTimeout(function(){window.location.href=" . json_encode($url_destino) . ";},1200);</script>";
-        } catch (Throwable $e) {
-            error_log(
-                "Error al firmar documento de Coaching. Paquete: "
-                . $gcp_id
-                . ". Usuario: "
-                . ($_SESSION["usu_id"] ?? "sin_usuario")
-                . ". Detalle: "
-                . $e->getMessage()
-            );
-
-            $respuesta_accion = "<div class='alert alert-danger mb-3' role='alert'><span class='fas fa-exclamation-circle mr-1'></span>No fue posible registrar la firma. Verifique que el documento siga vigente e intente nuevamente.</div>";
+            if (count($errores_encuesta) > 0) {
+                $respuesta_accion = "<script type='text/javascript'>alertify.warning('Responda todas las preguntas de la encuesta.', 0);</script>";
+            } else {
+                $gcd_id = (int) validar_input($_POST['gcd_id']);
+                try {
+                    if ($requiere_encuesta) {
+                        guardarEncuestaPercepcion($enlace_db, $gcp_id, $respuestas_encuesta, $_SESSION['usu_id']);
+                    }
+                    firmarDocumentoCoaching(
+                        $enlace_db,
+                        $gcp_id,
+                        $gcd_id,
+                        $_SESSION['usu_id'],
+                        'Agente',
+                        $_SERVER['REMOTE_ADDR'] ?? '',
+                        $_SERVER['HTTP_USER_AGENT'] ?? null
+                    );
+                    $respuesta_accion = "<script type='text/javascript'>alertify.success('Documento firmado correctamente.', 0); setTimeout(function(){ window.location='gestion_coaching_ver.php?reg=" . base64_encode($gcp_id) . "'; }, 1200);</script>";
+                } catch (Throwable $e) {
+                    // Mensaje funcional, nunca el detalle técnico (ver Entregable 5, manejo de errores)
+                    $respuesta_accion = "<script type='text/javascript'>alertify.warning('" . addslashes($e->getMessage()) . "', 0);</script>";
+                }
+            }
         }
     }
-}
 
-$paquete_codigo = validar_output($gcp_id);
-$documento_version = $documento ? (int) ($documento["gcd_version"] ?? 1) : null;
-$pdf_url = "gestion_coaching_documento_descargar.php?reg=" . rawurlencode(base64_encode($gcp_id));
-$ruta_cancelar = "gestion_coaching_ver.php?reg=" . rawurlencode(base64_encode($gcp_id));
+    $documento = obtenerDocumentoVigente($enlace_db, $gcp_id, 'Retroalimentacion')
+        ?? obtenerDocumentoVigente($enlace_db, $gcp_id, 'Acta_Compromiso');
+
+    if (!$documento) {
+        header("Location:gestion_coaching_ver.php?reg=" . base64_encode($gcp_id));
+        exit;
+    }
+
+    if (empty($_SESSION['_csrf_token'])) {
+        $_SESSION['_csrf_token'] = bin2hex(random_bytes(32));
+    }
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="ES">
 <head>
     <?php include("../config/configuracion_estilos.php"); ?>
     <style>
-        :root{--firma-primary:#196f3d;--firma-primary-dark:#12542e;--firma-text:#263238;--firma-muted:#66727c;--firma-border:#dfe5e8;--firma-bg:#f4f7f5;--firma-card:#fff;--firma-focus:rgba(25,111,61,.22)}
-        body{background:var(--firma-bg)}
-        .firma-page{padding:18px 16px 110px}.firma-container{max-width:1500px;margin:0 auto}
-        .firma-breadcrumb{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;color:var(--firma-muted);font-size:13px}
-        .firma-breadcrumb a{color:var(--firma-primary);font-weight:600;text-decoration:none}.firma-breadcrumb a:hover,.firma-breadcrumb a:focus{text-decoration:underline}
-        .firma-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px;padding:20px;border:1px solid var(--firma-border);border-radius:12px;background:var(--firma-card);box-shadow:0 3px 12px rgba(34,51,45,.06)}
-        .firma-hero-main{display:flex;align-items:flex-start;gap:14px}.firma-hero-icon{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;flex:0 0 46px;border-radius:12px;background:rgba(25,111,61,.10);color:var(--firma-primary);font-size:20px}
-        .firma-title{margin:0 0 5px;color:var(--firma-text);font-size:24px;font-weight:700;line-height:1.25}.firma-subtitle{margin:0;color:var(--firma-muted);font-size:14px;line-height:1.5}
-        .firma-status{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;padding:7px 11px;border:1px solid #bfe2ca;border-radius:999px;background:#edf8f1;color:var(--firma-primary-dark);font-size:12px;font-weight:700}
-        .firma-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}
-        .firma-card{overflow:hidden;border:1px solid var(--firma-border);border-radius:12px;background:var(--firma-card);box-shadow:0 3px 12px rgba(34,51,45,.06)}
-        .firma-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--firma-border);background:#fbfcfb}
-        .firma-card-title{display:flex;align-items:center;gap:9px;margin:0;color:var(--firma-text);font-size:15px;font-weight:700}.firma-version{color:var(--firma-muted);font-size:12px}
-        .firma-document-frame{width:100%;height:calc(100vh - 300px);min-height:560px;border:0;background:#303030}.firma-frame-fallback{padding:12px 16px;border-top:1px solid var(--firma-border);background:#fff;color:var(--firma-muted);font-size:12px}
-        .firma-side{position:sticky;top:12px}.firma-side-body{padding:18px}.firma-steps{margin:0 0 18px;padding:0;list-style:none}.firma-step{display:flex;gap:11px;margin-bottom:14px}.firma-step:last-child{margin-bottom:0}
-        .firma-step-number{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex:0 0 28px;border-radius:50%;background:rgba(25,111,61,.11);color:var(--firma-primary);font-size:12px;font-weight:700}
-        .firma-step-title{margin:0 0 2px;color:var(--firma-text);font-size:13px;font-weight:700}.firma-step-text{margin:0;color:var(--firma-muted);font-size:12px;line-height:1.45}.firma-divider{height:1px;margin:17px 0;background:var(--firma-border)}
-        .firma-consent{position:relative;display:block;margin:0;padding:14px 14px 14px 47px;border:1px solid var(--firma-border);border-radius:9px;background:#fbfcfb;cursor:pointer;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}
-        .firma-consent:hover{border-color:#a8cdb5;background:#f6fbf8}.firma-consent input{position:absolute;top:17px;left:16px;width:20px;height:20px;margin:0;accent-color:var(--firma-primary)}.firma-consent:focus-within{border-color:var(--firma-primary);box-shadow:0 0 0 3px var(--firma-focus)}
-        .firma-consent-title{display:block;margin-bottom:4px;color:var(--firma-text);font-size:13px;font-weight:700}.firma-consent-text{display:block;color:var(--firma-muted);font-size:12px;line-height:1.5}.firma-legal{margin:12px 0 0;color:var(--firma-muted);font-size:11px;line-height:1.45}
-        .firma-actions{display:grid;grid-template-columns:1fr;gap:9px;margin-top:16px}.firma-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:9px 15px;border:1px solid transparent;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none!important;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,background .15s ease}
-        .firma-btn:focus{outline:none;box-shadow:0 0 0 3px var(--firma-focus)}.firma-btn-primary{background:var(--firma-primary);color:#fff}.firma-btn-primary:hover:not(:disabled){background:var(--firma-primary-dark);color:#fff;transform:translateY(-1px)}.firma-btn-primary:disabled{background:#a8b7ae;color:#eef2ef;cursor:not-allowed}
-        .firma-btn-secondary{border-color:var(--firma-border);background:#fff;color:var(--firma-text)}.firma-btn-secondary:hover{border-color:#b8c4c9;background:#f6f8f7;color:var(--firma-text)}.firma-btn-link{background:transparent;color:var(--firma-primary)}.firma-btn-link:hover{background:rgba(25,111,61,.07);color:var(--firma-primary-dark)}
-        .firma-security{display:flex;align-items:flex-start;gap:9px;margin-top:14px;padding:11px;border-radius:8px;background:#f3f6f4;color:var(--firma-muted);font-size:11px;line-height:1.45}.firma-security span{margin-top:2px;color:var(--firma-primary)}
-        .firma-mobile-actions{display:none}
-        @media(max-width:991.98px){.firma-page{padding:12px 10px 125px}.firma-hero{padding:16px}.firma-grid{grid-template-columns:1fr}.firma-side{position:static}.firma-document-frame{height:68vh;min-height:480px}.firma-mobile-actions{position:fixed;z-index:1040;right:0;bottom:0;left:0;display:flex;gap:9px;padding:10px;border-top:1px solid var(--firma-border);background:rgba(255,255,255,.97);box-shadow:0 -4px 14px rgba(27,44,35,.12)}.firma-mobile-actions .firma-btn{flex:1}}
-        @media(max-width:575.98px){.firma-hero{flex-direction:column}.firma-title{font-size:20px}.firma-status{white-space:normal}.firma-document-frame{height:62vh;min-height:420px}.firma-card-header{align-items:flex-start;flex-direction:column}}
-        @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+        .coaching_breadcrumb { font-size: 11px; color: #6E6E6E; margin-bottom: 10px; }
+        .coaching_breadcrumb a { color: #4CAF50; }
+
+        .coaching_visor_documento {
+            border: 1px solid #F2F2F2; border-radius: 6px; overflow: hidden;
+        }
+        .coaching_visor_documento iframe { width: 100%; height: 720px; border: 0; display: block; }
+
+        .coaching_panel_firma { position: sticky; top: 15px; }
+
+        .coaching_confirmacion {
+            background: #F1F8F2; border: 1px solid #4CAF50; border-radius: 6px;
+            padding: 14px; margin-bottom: 14px; display: flex; align-items: flex-start; gap: 10px;
+        }
+        .coaching_confirmacion.error { border-color: #FF0000; background: #FDEDED; }
+
+        /* Reset agresivo: el style.css real del sitio pinta los checkboxes
+           nativos como una barra rota (probablemente parte de un esquema
+           de checkbox "custom" que no estamos usando aquí). "all: revert"
+           borra cualquier herencia global antes de aplicar el tamaño fijo,
+           así queda a prueba de esa interferencia sin importar de dónde
+           venga. */
+        .coaching_confirmacion input[type="checkbox"] {
+            all: revert !important;
+            -webkit-appearance: checkbox !important;
+            appearance: checkbox !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            position: static !important;
+            width: 18px !important;
+            height: 18px !important;
+            min-width: 18px !important;
+            margin: 2px 0 0 0 !important;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .coaching_confirmacion input[type="checkbox"]::before,
+        .coaching_confirmacion input[type="checkbox"]::after { content: none !important; display: none !important; }
+        .coaching_confirmacion label { font-size: 12px; color: #1A1A1A; margin: 0; cursor: pointer; line-height: 1.5; }
+
+        .coaching_nota_legal { font-size: 10px; color: #6E6E6E; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 5px; background: #F2F2F2; border-radius: 5px; padding: 8px 10px; }
+
+        .coaching_ficha_doc { font-size: 11px; color: #1A1A1A; margin-bottom: 14px; }
+        .coaching_ficha_doc .fila { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #F2F2F2; }
+        .coaching_ficha_doc .fila:last-child { border-bottom: none; }
+        .coaching_ficha_doc .etiqueta { color: #6E6E6E; }
+
+        #btn_firmar[disabled] { opacity: .7; cursor: not-allowed; }
+
+        @media (max-width: 767px) {
+            .coaching_panel_firma { position: static; margin-top: 15px; }
+        }
     </style>
 </head>
 <body>
-<?php include("../menu_principal.php"); include("../menu_header.php"); ?>
-<main class="contenido firma-page" id="contenido-principal">
-    <div class="firma-container">
-        <nav class="firma-breadcrumb" aria-label="Migas de pan">
+    <?php
+        include("../menu_principal.php");
+        include("../menu_header.php");
+        echo $respuesta_accion;
+    ?>
+    <div class="contenido">
+        <nav class="coaching_breadcrumb">
             <a href="gestion_coaching.php?pagina=1&id=null&est=Pendientes">Coaching</a>
-            <span aria-hidden="true">/</span>
-            <a href="<?php echo validar_output($ruta_cancelar); ?>">Paquete <?php echo $paquete_codigo; ?></a>
-            <span aria-hidden="true">/</span>
-            <span aria-current="page">Firma del documento</span>
+            <span class="mx-1">/</span>
+            <a href="gestion_coaching_ver.php?reg=<?php echo base64_encode($gcp_id); ?>"><?php echo validar_output($gcp_id); ?></a>
+            <span class="mx-1">/</span>
+            <span>Firmar documento</span>
         </nav>
 
-        <section class="firma-hero" aria-labelledby="firma-page-title">
-            <div class="firma-hero-main">
-                <div class="firma-hero-icon" aria-hidden="true"><span class="fas fa-file-signature"></span></div>
-                <div>
-                    <h1 class="firma-title" id="firma-page-title">Revisar y firmar documento</h1>
-                    <p class="firma-subtitle">Paquete <strong><?php echo $paquete_codigo; ?></strong>. Revise el documento completo antes de registrar su aceptación electrónica.</p>
+        <div class="mb-3">
+            <h4 class="titulo_seccion mb-0">Firma del documento</h4>
+            <span class="descripcion-seccion-conocimiento">Paquete <?php echo validar_output($gcp_id); ?> · Versión v<?php echo (int) $documento['gcd_version']; ?></span>
+        </div>
+
+        <form method="POST" action="" id="form_firmar">
+            <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($_SESSION['_csrf_token']); ?>">
+            <input type="hidden" name="gcd_id" value="<?php echo (int) $documento['gcd_id']; ?>">
+
+            <div class="row">
+                <div class="col-md-8 mb-3">
+                    <div class="cuadro_dash mb-3">
+                        <div class="cuadro_dash_titulo p-2"><span class="fas fa-file-pdf"></span> Revise el documento completo antes de firmar</div>
+                        <div class="p-2">
+                            <div class="coaching_visor_documento">
+                                <iframe src="gestion_coaching_documento_descargar.php?reg=<?php echo base64_encode($gcp_id); ?>"></iframe>
+                            </div>
+                        </div>
+                    </div>
+
+                    <?php if ($requiere_encuesta): ?>
+                    <div class="cuadro_dash">
+                        <div class="cuadro_dash_titulo p-2"><span class="fas fa-poll"></span> Encuesta del espacio</div>
+                        <div class="p-3">
+                            <p style="font-size:11px; color:#6E6E6E; margin-bottom:12px;">Marque con una X: 1 en desacuerdo — 5 muy de acuerdo.</p>
+                            <?php foreach ($preguntas_encuesta as $p): ?>
+                                <div class="mb-3">
+                                    <label class="coaching_label" style="font-size:12px; font-weight:bold; display:block; margin-bottom:6px;">
+                                        <?php echo validar_output($p['gcep_texto']); ?>
+                                    </label>
+                                    <div style="display:flex; gap:16px;">
+                                        <?php for ($v = 1; $v <= 5; $v++): ?>
+                                            <label style="font-weight:normal; font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                                <input type="radio" name="encuesta[<?php echo htmlspecialchars($p['gcep_codigo']); ?>]" value="<?php echo $v; ?>" required
+                                                    style="width:16px; height:16px; cursor:pointer;">
+                                                <?php echo $v; ?>
+                                            </label>
+                                        <?php endfor; ?>
+                                    </div>
+                                    <?php if (isset($errores_encuesta[$p['gcep_codigo']])): ?>
+                                        <div class="coaching_campo_error_texto" style="color:#FF0000; font-size:11px; margin-top:3px;">Requerido.</div>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="coaching_panel_firma">
+                        <div class="cuadro_dash">
+                            <div class="cuadro_dash_titulo p-2"><span class="fas fa-signature"></span> Aceptación electrónica</div>
+                            <div class="p-3">
+                                <div class="coaching_ficha_doc">
+                                    <div class="fila"><span class="etiqueta">Paquete</span><strong><?php echo validar_output($gcp_id); ?></strong></div>
+                                    <div class="fila"><span class="etiqueta">Versión</span><strong>v<?php echo (int) $documento['gcd_version']; ?></strong></div>
+                                    <div class="fila"><span class="etiqueta">Fecha</span><strong><?php echo date('d/m/Y'); ?></strong></div>
+                                </div>
+
+                                <div class="coaching_confirmacion <?php echo $error_general ? 'error' : ''; ?>">
+                                    <input type="checkbox" id="acepto" name="acepto" required>
+                                    <label for="acepto">
+                                        He leído y entendido el contenido de este documento de coaching. Confirmo mi
+                                        aceptación electrónica, con el mismo valor y efecto que mi firma manuscrita
+                                        para efectos de este proceso interno.
+                                        <?php if ($error_general): ?>
+                                            <div style="color:#FF0000; font-size:11px; margin-top:4px;"><?php echo validar_output($error_general); ?></div>
+                                        <?php endif; ?>
+                                    </label>
+                                </div>
+
+                                <div class="coaching_nota_legal">
+                                    <span class="fas fa-shield-alt"></span>
+                                    <span>Se registrará la fecha, hora, dirección IP y el documento exacto que está firmando, como respaldo de esta aceptación.</span>
+                                </div>
+
+                                <button type="submit" name="confirmar_firma" id="btn_firmar" class="btn-corp px-4 py-2 d-block w-100 mb-2" style="border-radius:5px; border:0;">
+                                    <span class="fas fa-signature"></span> Firmar documento
+                                </button>
+                                <a href="gestion_coaching_ver.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp-2 px-4 py-2 d-block w-100 text-center" style="border-radius:5px;">Cancelar</a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <?php if ($documento): ?><span class="firma-status"><span class="fas fa-clock" aria-hidden="true"></span>Pendiente de su firma</span><?php endif; ?>
-        </section>
+        </form>
 
-        <?php echo $respuesta_accion; ?>
-
-        <?php if ($documento): ?>
-        <div class="firma-grid">
-            <section class="firma-card" aria-labelledby="documento-title">
-                <header class="firma-card-header">
-                    <h2 class="firma-card-title" id="documento-title"><span class="fas fa-file-pdf text-danger" aria-hidden="true"></span>Documento para revisión</h2>
-                    <span class="firma-version">Versión <?php echo $documento_version; ?></span>
-                </header>
-                <iframe class="firma-document-frame" src="<?php echo validar_output($pdf_url); ?>#toolbar=1&navpanes=0&view=FitH" title="Documento PDF del paquete <?php echo $paquete_codigo; ?>" loading="eager"></iframe>
-                <div class="firma-frame-fallback">¿El documento no se muestra correctamente? <a href="<?php echo validar_output($pdf_url); ?>" target="_blank" rel="noopener noreferrer">Abrir el PDF en una pestaña nueva</a>.</div>
-            </section>
-
-            <aside class="firma-card firma-side" aria-labelledby="firma-panel-title">
-                <header class="firma-card-header"><h2 class="firma-card-title" id="firma-panel-title"><span class="fas fa-signature" aria-hidden="true"></span>Confirmación</h2></header>
-                <div class="firma-side-body">
-                    <ol class="firma-steps">
-                        <li class="firma-step"><span class="firma-step-number">1</span><div><p class="firma-step-title">Revise el documento</p><p class="firma-step-text">Verifique los datos, compromisos y condiciones incluidas.</p></div></li>
-                        <li class="firma-step"><span class="firma-step-number">2</span><div><p class="firma-step-title">Confirme su aceptación</p><p class="firma-step-text">Marque la casilla únicamente cuando haya leído todo el contenido.</p></div></li>
-                        <li class="firma-step"><span class="firma-step-number">3</span><div><p class="firma-step-title">Registre la firma</p><p class="firma-step-text">El sistema almacenará fecha, hora y trazabilidad técnica.</p></div></li>
-                    </ol>
-                    <div class="firma-divider"></div>
-                    <form id="form-firma" method="POST" action="" novalidate>
-                        <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($_SESSION["_csrf_token"], ENT_QUOTES, "UTF-8"); ?>">
-                        <input type="hidden" name="gcd_id" value="<?php echo (int) $documento["gcd_id"]; ?>">
-                        <label class="firma-consent" for="aceptacion_documento">
-                            <input type="checkbox" id="aceptacion_documento" name="aceptacion_documento" value="1" required aria-describedby="texto-aceptacion">
-                            <span class="firma-consent-title">He leído y acepto el documento</span>
-                            <span class="firma-consent-text" id="texto-aceptacion">Confirmo que revisé el contenido de este documento de Coaching y registro mi aceptación electrónica para este proceso interno.</span>
-                        </label>
-                        <p class="firma-legal">Esta acción es personal y no puede deshacerse desde esta pantalla. No cierre la ventana durante el procesamiento.</p>
-                        <div class="firma-actions">
-                            <button type="submit" class="firma-btn firma-btn-primary" id="btn-firmar" name="confirmar_firma" value="1" disabled><span class="fas fa-signature" aria-hidden="true"></span>Firmar documento</button>
-                            <a class="firma-btn firma-btn-secondary" href="<?php echo validar_output($ruta_cancelar); ?>"><span class="fas fa-arrow-left" aria-hidden="true"></span>Volver sin firmar</a>
-                            <a class="firma-btn firma-btn-link" href="<?php echo validar_output($pdf_url); ?>" target="_blank" rel="noopener noreferrer"><span class="fas fa-external-link-alt" aria-hidden="true"></span>Abrir PDF aparte</a>
-                        </div>
-                        <div class="firma-security"><span class="fas fa-shield-alt" aria-hidden="true"></span><div>La firma se vinculará a la versión vigente del documento y quedará registrada en el historial del paquete.</div></div>
-                    </form>
-                </div>
-            </aside>
-        </div>
-
-        <div class="firma-mobile-actions" aria-label="Acciones de firma en dispositivo móvil">
-            <a class="firma-btn firma-btn-secondary" href="<?php echo validar_output($ruta_cancelar); ?>">Cancelar</a>
-            <button type="button" class="firma-btn firma-btn-primary" id="btn-firmar-mobile" disabled><span class="fas fa-signature" aria-hidden="true"></span>Firmar</button>
-        </div>
-        <?php else: ?>
-        <section class="firma-card"><div class="firma-side-body text-center py-5"><span class="fas fa-file-excel fa-3x text-warning mb-3" aria-hidden="true"></span><h2 class="h5">Documento no disponible</h2><p class="text-muted">El paquete no tiene un documento vigente que pueda ser firmado.</p><a class="firma-btn firma-btn-secondary d-inline-flex" href="<?php echo validar_output($ruta_cancelar); ?>">Volver al paquete</a></div></section>
-        <?php endif; ?>
+        <script>
+        (function () {
+            var form = document.getElementById('form_firmar');
+            var boton = document.getElementById('btn_firmar');
+            form.addEventListener('submit', function (e) {
+                if (!confirm('¿Confirma que quiere firmar este documento? Esta acción no se puede deshacer.')) {
+                    e.preventDefault();
+                    return;
+                }
+                setTimeout(function () {
+                    boton.disabled = true;
+                    boton.innerHTML = '<span class="fas fa-spinner fa-spin"></span> Firmando...';
+                }, 0);
+            });
+        })();
+        </script>
     </div>
-</main>
-<?php include("../footer.php"); include("../config/configuracion_js.php"); ?>
-<?php if ($documento): ?>
-<script>
-(function(){"use strict";var checkbox=document.getElementById("aceptacion_documento");var form=document.getElementById("form-firma");var button=document.getElementById("btn-firmar");var mobileButton=document.getElementById("btn-firmar-mobile");var submitting=false;function syncButtons(){var enabled=checkbox.checked&&!submitting;button.disabled=!enabled;if(mobileButton){mobileButton.disabled=!enabled}}checkbox.addEventListener("change",syncButtons);if(mobileButton){mobileButton.addEventListener("click",function(){if(!mobileButton.disabled){button.click()}})}form.addEventListener("submit",function(event){if(!checkbox.checked){event.preventDefault();checkbox.focus();return}if(submitting){event.preventDefault();return}var confirmed=window.confirm("¿Confirma que leyó el documento y desea registrar su firma electrónica?");if(!confirmed){event.preventDefault();return}submitting=true;button.disabled=true;button.innerHTML='<span class="fas fa-spinner fa-spin" aria-hidden="true"></span> Firmando...';if(mobileButton){mobileButton.disabled=true;mobileButton.innerHTML='<span class="fas fa-spinner fa-spin" aria-hidden="true"></span> Procesando...'}});syncButtons()}());
-</script>
-<?php endif; ?>
+    <?php include("../footer.php"); ?>
 </body>
 </html>

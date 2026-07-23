@@ -104,7 +104,7 @@
                             <span class="fas fa-award"></span>
                         </div>
                         <h5 class="mb-3">¡Felicitaciones!</h5>
-                        <p style="font-size:13px; color:#333;">
+                        <p style="font-size:13px; color:#1A1A1A;">
                             Su supervisor le ha registrado un reconocimiento de tipo
                             <strong><?php echo validar_output($paquete['gct_nombre']); ?></strong>.
                             Confirme que lo recibió para cerrar el proceso.
@@ -137,6 +137,3 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
-
-
-

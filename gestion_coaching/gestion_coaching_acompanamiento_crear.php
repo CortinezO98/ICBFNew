@@ -81,11 +81,11 @@ $meses = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>
 <!DOCTYPE html><html lang="ES"><head>
 <?php include '../config/configuracion_estilos.php'; ?>
 <style>
-.coach-step{background:#fff;border:1px solid #e1e5e8;border-radius:6px;margin-bottom:12px}.coach-step-title{background:#176486;color:#fff;font-weight:bold;padding:9px 12px}.coach-step-body{padding:14px}.indicator-box{max-height:330px;overflow:auto;border:1px solid #ddd;padding:10px;border-radius:4px}.indicator-category{font-weight:bold;color:#176486;margin-top:8px}.required:after{content:' *';color:#c00}.conditional{display:none}.help{font-size:11px;color:#666}.summary-bar{position:sticky;bottom:0;background:#fff;border-top:2px solid #72bf44;padding:10px;z-index:5}
+.coach-step{background:#fff;border:1px solid #F2F2F2;border-radius:6px;margin-bottom:12px}.coach-step-title{background:#4CAF50;color:#fff;font-weight:bold;padding:9px 12px}.coach-step-body{padding:14px}.indicator-box{max-height:330px;overflow:auto;border:1px solid #F2F2F2;padding:10px;border-radius:4px}.indicator-category{font-weight:bold;color:#4CAF50;margin-top:8px}.required:after{content:' *';color:#FF0000}.conditional{display:none}.help{font-size:11px;color:#6E6E6E}.summary-bar{position:sticky;bottom:0;background:#fff;border-top:2px solid #4CAF50;padding:14px 16px;z-index:5;box-shadow:0 -2px 8px rgba(0,0,0,.06);display:flex;justify-content:center;align-items:center;gap:10px}
 </style></head><body>
 <?php include '../menu_principal.php'; include '../menu_header.php'; ?>
 <div class="contenido fondo-gris"><div class="container-fluid py-2">
-<div class="d-flex justify-content-between align-items-center mb-2"><h5 class="mb-0"><span class="fas fa-user-check"></span> Acompañamiento - Líder de equipo</h5><a class="btn btn-corp" href="gestion_coaching_acompanamientos.php"><span class="fas fa-list"></span> Ver acompañamientos</a></div>
+<div class="d-flex justify-content-between align-items-center mb-2"><h5 class="mb-0"><span class="fas fa-user-check"></span> Acompañamiento - Líder de equipo</h5><a class="btn-corp px-3 py-1" style="border-radius:5px;" href="gestion_coaching_acompanamientos.php"><span class="fas fa-list"></span> Ver acompañamientos</a></div>
 <?php echo $respuesta_accion; ?>
 <?php if ($errores): ?><div class="alert alert-danger"><strong>Revise la información:</strong><ul class="mb-0"><?php foreach($errores as $e): ?><li><?php echo htmlspecialchars($e); ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 <form method="post" enctype="multipart/form-data" id="formAcompanamiento">
@@ -118,10 +118,12 @@ $meses = [1=>'Enero',2=>'Febrero',3=>'Marzo',4=>'Abril',5=>'Mayo',6=>'Junio',7=>
 
 <div class="coach-step"><div class="coach-step-title">4. Reporte del proceso de seguimiento</div><div class="coach-step-body"><div class="form-group"><label class="required">Motivo - Justificación del reporte</label><textarea class="form-control form-control-sm" name="motivo" rows="5" maxlength="8000" required><?php echo htmlspecialchars($_POST['motivo']??''); ?></textarea><div class="help">Registre información objetiva, verificable y conocida por el colaborador.</div></div><div class="form-group"><label class="required">Compromisos adquiridos por el colaborador</label><textarea class="form-control form-control-sm" name="compromisos" rows="5" maxlength="8000" required><?php echo htmlspecialchars($_POST['compromisos']??''); ?></textarea></div></div></div>
 
-<div class="summary-bar text-right"><a class="btn btn-danger" href="gestion_coaching_acompanamientos.php">Cancelar</a><button class="btn btn-success ml-1" type="submit" name="guardar_registro"><span class="fas fa-save"></span> Registrar acompañamiento</button></div>
+<div class="summary-bar"><a class="btn-corp-2 px-4 py-2" style="border-radius:5px; min-width:120px; text-align:center;" href="gestion_coaching_acompanamientos.php">Cancelar</a><button class="btn-corp px-4 py-2" style="border-radius:5px; border:0; min-width:220px;" type="submit" name="guardar_registro"><span class="fas fa-save"></span> Registrar acompañamiento</button></div>
 </form></div></div>
 <?php include '../footer.php'; include '../config/configuracion_js.php'; ?>
 <script>
 function actualizarAccion(){var o=document.querySelector('#accion_id option:checked');var esc=o&&o.dataset.escalamiento==='1';var pack=o&&o.dataset.paquete==='1';document.getElementById('bloqueEscalamiento').style.display=esc?'block':'none';document.getElementById('bloquePrioridad').style.display=pack?'block':'none';document.getElementById('bloqueFecha').style.display=pack?'block':'none';document.querySelectorAll('#bloqueEscalamiento input').forEach(function(i){i.required=esc&&['escalamiento_asunto','escalamiento_fecha','escalamiento_destinatario'].includes(i.name);});}
 document.getElementById('accion_id').addEventListener('change',actualizarAccion);actualizarAccion();
 </script></body></html>
+
+

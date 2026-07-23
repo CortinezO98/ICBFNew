@@ -290,7 +290,7 @@
         .coaching_breadcrumb a { color: #4CAF50; }
 
         .coaching_kpi_grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
-        .coaching_kpi { background: #FFFFFF; border: 1px solid #E3E6EA; border-radius: 8px; padding: 12px; text-align: center; }
+        .coaching_kpi { background: #FFFFFF; border: 1px solid #F2F2F2; border-radius: 8px; padding: 12px; text-align: center; }
         .coaching_kpi .valor { font-size: 22px; font-weight: bold; color: #4CAF50; }
         .coaching_kpi .valor.alerta { color: #FF0000; }
         .coaching_kpi .etiqueta { font-size: 10px; color: #6E6E6E; text-transform: uppercase; letter-spacing: .03em; margin-top: 3px; }
@@ -304,7 +304,7 @@
 
         .coaching_tabla_mini td, .coaching_tabla_mini th { font-size: 11px; padding: 5px 8px; }
 
-        .coaching_tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 2px solid #E3E6EA; flex-wrap: wrap; }
+        .coaching_tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 2px solid #F2F2F2; flex-wrap: wrap; }
         .coaching_tab {
             padding: 10px 18px; font-size: 12px; font-weight: bold; color: #6E6E6E; text-decoration: none;
             border-bottom: 3px solid transparent; margin-bottom: -2px; display: inline-flex; align-items: center; gap: 6px;
@@ -598,6 +598,3 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
-
-
-

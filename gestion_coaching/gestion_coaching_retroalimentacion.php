@@ -126,7 +126,7 @@
         label.coaching_label .opcional { font-weight: normal; color: #6E6E6E; font-size: 10px; }
         .coaching_campo_error { border: 1px solid #FF0000 !important; }
         .coaching_campo_error_texto { color: #FF0000; font-size: 11px; margin-top: 3px; }
-        .coaching_compromiso_fila { border: 1px solid #D8D8D8; border-radius: 5px; padding: 12px; margin-bottom: 10px; position: relative; }
+        .coaching_compromiso_fila { border: 1px solid #F2F2F2; border-radius: 5px; padding: 12px; margin-bottom: 10px; position: relative; }
         .coaching_compromiso_quitar { position: absolute; top: 8px; right: 8px; color: #FF0000; cursor: pointer; font-size: 12px; }
         .coaching_acciones_form { display: flex; justify-content: center; align-items: center; gap: 10px; }
         #btn_guardar[disabled] { opacity: .7; cursor: not-allowed; }
@@ -272,6 +272,3 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
-
-
-

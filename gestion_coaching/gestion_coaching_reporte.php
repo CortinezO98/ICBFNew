@@ -4,6 +4,8 @@
     require_once("../config/validaciones_seguridad.php");
     require_once("../config/conexion_db.php");
     require_once("lib/coaching_seguridad.php");
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
 
     $titulo_header = "Coaching | Reporte";
 
@@ -51,12 +53,18 @@
     $sql =
         "SELECT P.`gcp_id`, P.`gcp_origen_tipo`, T.`gct_nombre`, E.`gce_nombre`, E.`gce_codigo`,
                 TA.`usu_nombres_apellidos` AS agente_nombre, TS.`usu_nombres_apellidos` AS supervisor_nombre,
-                P.`gcp_registro_fecha`, P.`gcp_fecha_limite`, P.`gcp_fecha_cierre`, P.`gcp_prioridad`
+                P.`gcp_registro_fecha`, P.`gcp_fecha_limite`, P.`gcp_fecha_cierre`, P.`gcp_prioridad`,
+                (SELECT GROUP_CONCAT(I.`gci_nombre` SEPARATOR '; ')
+                 FROM `tb_gestion_coaching_paquete_indicador` AS PI
+                 INNER JOIN `tb_gestion_coaching_indicador` AS I ON PI.`gcpi_indicador_id` = I.`gci_id`
+                 WHERE PI.`gcpi_paquete` = P.`gcp_id`) AS indicadores_multiples,
+                ESC.`gcesc_destinatario_nombre`, ESC.`gcesc_asunto`
          FROM `tb_gestion_coaching_paquete` AS P
          LEFT JOIN `tb_gestion_coaching_estado` AS E ON P.`gcp_estado_id` = E.`gce_id`
          LEFT JOIN `tb_gestion_coaching_tipo` AS T ON P.`gcp_tipo_id` = T.`gct_id`
          LEFT JOIN `tb_administrador_usuario` AS TA ON P.`gcp_agente_id` = TA.`usu_id`
          LEFT JOIN `tb_administrador_usuario` AS TS ON P.`gcp_supervisor_id` = TS.`usu_id`
+         LEFT JOIN `tb_gestion_coaching_escalamiento` AS ESC ON P.`gcp_id` = ESC.`gcesc_paquete`
          WHERE P.`gcp_activo` = 1 {$filtro_alcance_sql} {$condiciones}
          ORDER BY P.`gcp_registro_fecha` DESC
          LIMIT 500";
@@ -187,6 +195,7 @@
                         <th class="col-centro">Tipo</th>
                         <th class="col-izq">Agente</th>
                         <th class="col-izq">Supervisor</th>
+                        <th class="col-izq">Indicadores</th>
                         <th class="col-centro">Estado</th>
                         <th class="col-centro">Creado</th>
                         <th class="col-centro">Cierre</th>
@@ -195,7 +204,7 @@
                 </thead>
                 <tbody>
                     <?php if (count($registros) === 0): ?>
-                        <tr><td colspan="9" class="text-center" style="font-size:12px; color:#6E6E6E; padding:15px;">No hay resultados para los filtros seleccionados.</td></tr>
+                        <tr><td colspan="10" class="text-center" style="font-size:12px; color:#6E6E6E; padding:15px;">No hay resultados para los filtros seleccionados.</td></tr>
                     <?php endif; ?>
                     <?php foreach ($registros as $r): ?>
                         <tr class="tabla_contenido_1">
@@ -204,6 +213,7 @@
                             <td class="col-centro"><?php echo validar_output($r['gct_nombre']); ?></td>
                             <td class="col-izq"><?php echo validar_output($r['agente_nombre'] ?? '—'); ?></td>
                             <td class="col-izq"><?php echo validar_output($r['supervisor_nombre'] ?? '—'); ?></td>
+                            <td class="col-izq" style="font-size:11px; max-width:200px;"><?php echo validar_output($r['indicadores_multiples'] ?? '—'); ?></td>
                             <td class="col-centro"><span class="coaching_estado_pill <?php echo claseEstadoCoachingRep($r['gce_codigo']); ?>"><?php echo validar_output($r['gce_nombre']); ?></span></td>
                             <td class="col-centro"><?php echo date('d/m/Y', strtotime($r['gcp_registro_fecha'])); ?></td>
                             <td class="col-centro"><?php echo $r['gcp_fecha_cierre'] ? date('d/m/Y', strtotime($r['gcp_fecha_cierre'])) : '—'; ?></td>
@@ -221,6 +231,3 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
-
-
-

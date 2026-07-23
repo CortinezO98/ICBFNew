@@ -47,12 +47,18 @@
     $sql =
         "SELECT P.`gcp_id`, P.`gcp_origen_tipo`, T.`gct_nombre`, E.`gce_nombre`,
                 TA.`usu_nombres_apellidos` AS agente_nombre, TS.`usu_nombres_apellidos` AS supervisor_nombre,
-                P.`gcp_prioridad`, P.`gcp_registro_fecha`, P.`gcp_fecha_limite`, P.`gcp_fecha_cierre`
+                P.`gcp_prioridad`, P.`gcp_registro_fecha`, P.`gcp_fecha_limite`, P.`gcp_fecha_cierre`,
+                (SELECT GROUP_CONCAT(I.`gci_nombre` SEPARATOR '; ')
+                 FROM `tb_gestion_coaching_paquete_indicador` AS PI
+                 INNER JOIN `tb_gestion_coaching_indicador` AS I ON PI.`gcpi_indicador_id` = I.`gci_id`
+                 WHERE PI.`gcpi_paquete` = P.`gcp_id`) AS indicadores_multiples,
+                ESC.`gcesc_destinatario_nombre`, ESC.`gcesc_asunto`
          FROM `tb_gestion_coaching_paquete` AS P
          LEFT JOIN `tb_gestion_coaching_estado` AS E ON P.`gcp_estado_id` = E.`gce_id`
          LEFT JOIN `tb_gestion_coaching_tipo` AS T ON P.`gcp_tipo_id` = T.`gct_id`
          LEFT JOIN `tb_administrador_usuario` AS TA ON P.`gcp_agente_id` = TA.`usu_id`
          LEFT JOIN `tb_administrador_usuario` AS TS ON P.`gcp_supervisor_id` = TS.`usu_id`
+         LEFT JOIN `tb_gestion_coaching_escalamiento` AS ESC ON P.`gcp_id` = ESC.`gcesc_paquete`
          WHERE P.`gcp_activo` = 1 {$filtro_alcance_sql} {$condiciones}
          ORDER BY P.`gcp_registro_fecha` DESC";
 
@@ -68,30 +74,30 @@
     $sheet = $spreadsheet->getActiveSheet();
     $spreadsheet->getActiveSheet()->setTitle('Coaching');
 
-    $encabezados = ['Código', 'Origen', 'Tipo', 'Agente', 'Supervisor', 'Prioridad', 'Estado', 'Fecha creación', 'Fecha límite', 'Fecha cierre'];
-    $columnas = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    $encabezados = ['Código', 'Origen', 'Tipo', 'Agente', 'Supervisor', 'Prioridad', 'Estado', 'Fecha creación', 'Fecha límite', 'Fecha cierre', 'Indicadores', 'Escalamiento - Destinatario', 'Escalamiento - Asunto'];
+    $columnas = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
 
     foreach ($columnas as $col) {
         $sheet->getColumnDimension($col)->setWidth(20);
     }
 
     $sheet->setCellValue('A1', 'Reporte de Coaching — IQ-ICBF');
-    $sheet->mergeCells('A1:J1');
+    $sheet->mergeCells('A1:M1');
     $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
 
     $sheet->setCellValue('A2', 'Rango: ' . $fecha_desde . ' a ' . $fecha_hasta . ' — Generado: ' . date('d/m/Y H:i') . ' por ' . $_SESSION['usu_id']);
-    $sheet->mergeCells('A2:J2');
+    $sheet->mergeCells('A2:M2');
     $sheet->getStyle('A2')->getFont()->setItalic(true)->setSize(9);
 
     $fila_actual = 4;
     foreach ($columnas as $i => $col) {
         $sheet->setCellValue($col . $fila_actual, $encabezados[$i]);
     }
-    $sheet->getStyle('A' . $fila_actual . ':J' . $fila_actual)->getFont()->setBold(true);
-    $sheet->getStyle('A' . $fila_actual . ':J' . $fila_actual)->getFill()
+    $sheet->getStyle('A' . $fila_actual . ':M' . $fila_actual)->getFont()->setBold(true);
+    $sheet->getStyle('A' . $fila_actual . ':M' . $fila_actual)->getFill()
         ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
         ->getStartColor()->setRGB('4CAF50');
-    $sheet->getStyle('A' . $fila_actual . ':J' . $fila_actual)->getFont()->getColor()->setRGB('FFFFFF');
+    $sheet->getStyle('A' . $fila_actual . ':M' . $fila_actual)->getFont()->getColor()->setRGB('FFFFFF');
 
     $fila_actual++;
     foreach ($registros as $r) {
@@ -105,6 +111,9 @@
         $sheet->setCellValue('H' . $fila_actual, $r['gcp_registro_fecha'] ? date('d/m/Y', strtotime($r['gcp_registro_fecha'])) : '');
         $sheet->setCellValue('I' . $fila_actual, $r['gcp_fecha_limite'] ? date('d/m/Y', strtotime($r['gcp_fecha_limite'])) : '');
         $sheet->setCellValue('J' . $fila_actual, $r['gcp_fecha_cierre'] ? date('d/m/Y', strtotime($r['gcp_fecha_cierre'])) : '');
+        $sheet->setCellValue('K' . $fila_actual, $r['indicadores_multiples'] ?? '');
+        $sheet->setCellValue('L' . $fila_actual, $r['gcesc_destinatario_nombre'] ?? '');
+        $sheet->setCellValue('M' . $fila_actual, $r['gcesc_asunto'] ?? '');
         $fila_actual++;
     }
 
@@ -116,6 +125,3 @@
 
     $writer = new Xlsx($spreadsheet);
     $writer->save('php://output');
-
-
-

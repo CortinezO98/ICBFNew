@@ -594,10 +594,32 @@ function actualizarEstadoCompromiso(mysqli $enlace_db, int $gccm_id, string $gcp
 /** Inserta (o actualiza) la respuesta del agente. */
 function guardarRespuestaAgente(mysqli $enlace_db, string $gcp_id, array $datos, string $usu_id): void
 {
-    $sql="INSERT INTO tb_gestion_coaching_respuesta_agente(gcra_paquete,gcra_compromiso_general,gcra_acciones_no_reincidencia,gcra_que,gcra_como,gcra_cuando,gcra_aspectos_relevantes,gcra_confirma_claridad,gcra_observaciones,gcra_usuario) VALUES(?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE gcra_compromiso_general=VALUES(gcra_compromiso_general),gcra_acciones_no_reincidencia=VALUES(gcra_acciones_no_reincidencia),gcra_que=VALUES(gcra_que),gcra_como=VALUES(gcra_como),gcra_cuando=VALUES(gcra_cuando),gcra_aspectos_relevantes=VALUES(gcra_aspectos_relevantes),gcra_confirma_claridad=VALUES(gcra_confirma_claridad),gcra_observaciones=VALUES(gcra_observaciones),gcra_usuario=VALUES(gcra_usuario),gcra_registro_fecha=NOW()";
-    $s=$enlace_db->prepare($sql);$claridad=!empty($datos['confirma_claridad'])?1:0;
-    $s->bind_param('sssssssiss',$gcp_id,$datos['compromiso_general'],$datos['acciones_no_reincidencia'],$datos['que'],$datos['como'],$datos['cuando'],$datos['aspectos_relevantes'],$claridad,$datos['observaciones'],$usu_id);
-    if(!$s->execute()) throw new RuntimeException('No fue posible guardar la respuesta del agente.');
+    $confirma = $datos['confirma_claridad'] ? 1 : 0;
+    $insertar = $enlace_db->prepare(
+        "INSERT INTO `tb_gestion_coaching_respuesta_agente`
+            (`gcra_paquete`, `gcra_compromiso_general`, `gcra_acciones_no_reincidencia`,
+             `gcra_aspectos_relevantes`, `gcra_confirma_claridad`, `gcra_observaciones`, `gcra_usuario`)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            `gcra_compromiso_general` = VALUES(`gcra_compromiso_general`),
+            `gcra_acciones_no_reincidencia` = VALUES(`gcra_acciones_no_reincidencia`),
+            `gcra_aspectos_relevantes` = VALUES(`gcra_aspectos_relevantes`),
+            `gcra_confirma_claridad` = VALUES(`gcra_confirma_claridad`),
+            `gcra_observaciones` = VALUES(`gcra_observaciones`)"
+    );
+    $insertar->bind_param(
+        'ssssiss',
+        $gcp_id,
+        $datos['compromiso_general'],
+        $datos['acciones_no_reincidencia'],
+        $datos['aspectos_relevantes'],
+        $confirma,
+        $datos['observaciones'],
+        $usu_id
+    );
+    if (!$insertar->execute()) {
+        throw new RuntimeException('No fue posible guardar la respuesta del agente: ' . $enlace_db->error);
+    }
 }
 
 function obtenerRespuestaAgente(mysqli $enlace_db, string $gcp_id): ?array
@@ -636,6 +658,222 @@ function obtenerCampaniaYSegmentoRecienteAgente(mysqli $enlace_db, string $usu_i
 
     return ['campania_id' => $campania_id, 'segmento' => $segmento];
 }
+
+function listarPreguntasEncuesta(mysqli $enlace_db): array
+{
+    $resultado = $enlace_db->query("SELECT `gcep_codigo`, `gcep_texto` FROM `tb_gestion_coaching_encuesta_pregunta` WHERE `gcep_activo` = 1 ORDER BY `gcep_orden`");
+    return $resultado->fetch_all(MYSQLI_ASSOC);
+}
+
+/** Devuelve la encuesta ya diligenciada (cabecera + respuestas) o null si aún no existe. */
+function obtenerEncuestaPaquete(mysqli $enlace_db, string $gcp_id): ?array
+{
+    $consulta = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_encuesta` WHERE `gcen_paquete` = ? LIMIT 1");
+    $consulta->bind_param('s', $gcp_id);
+    $consulta->execute();
+    $cabecera = $consulta->get_result()->fetch_assoc();
+    if (!$cabecera) { return null; }
+
+    $consulta_resp = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_encuesta_respuesta` WHERE `gcenr_encuesta` = ?");
+    $consulta_resp->bind_param('i', $cabecera['gcen_id']);
+    $consulta_resp->execute();
+    $cabecera['respuestas'] = $consulta_resp->get_result()->fetch_all(MYSQLI_ASSOC);
+    return $cabecera;
+}
+
+/**
+ * Registra la encuesta (cabecera + detalle) — UNA sola vez por paquete
+ * (la restricción UNIQUE en `gcen_paquete` lo garantiza a nivel de base
+ * de datos, no solo en la validación de esta función: prevención real de
+ * doble respuesta, no solo de interfaz).
+ */
+function guardarRespuestaEncuesta(mysqli $enlace_db, string $gcp_id, array $respuestas, string $usu_id): void
+{
+    if (obtenerEncuestaPaquete($enlace_db, $gcp_id) !== null) {
+        throw new RuntimeException('Esta encuesta ya fue respondida — no se puede diligenciar dos veces.');
+    }
+
+    $enlace_db->begin_transaction();
+    try {
+        $insertar_cabecera = $enlace_db->prepare("INSERT INTO `tb_gestion_coaching_encuesta` (`gcen_paquete`, `gcen_usuario`) VALUES (?, ?)");
+        $insertar_cabecera->bind_param('ss', $gcp_id, $usu_id);
+        $insertar_cabecera->execute();
+        $encuesta_id = (int) $insertar_cabecera->insert_id;
+
+        $insertar_detalle = $enlace_db->prepare(
+            "INSERT INTO `tb_gestion_coaching_encuesta_respuesta` (`gcenr_encuesta`, `gcenr_pregunta_codigo`, `gcenr_pregunta_texto`, `gcenr_respuesta_valor`) VALUES (?, ?, ?, ?)"
+        );
+        foreach ($respuestas as $r) {
+            $insertar_detalle->bind_param('issi', $encuesta_id, $r['codigo'], $r['texto'], $r['valor']);
+            $insertar_detalle->execute();
+        }
+
+        $enlace_db->commit();
+    } catch (Throwable $e) {
+        $enlace_db->rollback();
+        throw $e;
+    }
+}
+
+
+function listarPreguntasEncuestaActivas(mysqli $enlace_db): array
+{
+    $resultado = $enlace_db->query("SELECT `gcep_codigo`, `gcep_texto` FROM `tb_gestion_coaching_encuesta_pregunta` WHERE `gcep_activo` = 1 ORDER BY `gcep_orden`");
+    return $resultado->fetch_all(MYSQLI_ASSOC);
+}
+
+/** ¿Ya respondió la encuesta este paquete? (evita doble respuesta, más allá del UNIQUE de la tabla). */
+function paqueteTieneEncuesta(mysqli $enlace_db, string $gcp_id): bool
+{
+    $consulta = $enlace_db->prepare("SELECT `gcen_id` FROM `tb_gestion_coaching_encuesta` WHERE `gcen_paquete` = ? LIMIT 1");
+    $consulta->bind_param('s', $gcp_id);
+    $consulta->execute();
+    return $consulta->get_result()->fetch_assoc() !== null;
+}
+
+/**
+ * Guarda la encuesta de percepción (cabecera + detalle), en una sola
+ * transacción. $respuestas = [codigo_pregunta => valor_1_a_5].
+ * Bloquea explícitamente el doble envío: si ya existe una encuesta para
+ * este paquete, lanza excepción — nunca se sobrescribe una respuesta ya
+ * dada (además del UNIQUE KEY de la tabla, que sería la última barrera).
+ */
+function guardarEncuestaPercepcion(mysqli $enlace_db, string $gcp_id, array $respuestas, string $usu_id): void
+{
+    if (paqueteTieneEncuesta($enlace_db, $gcp_id)) {
+        throw new RuntimeException('Este paquete ya tiene una encuesta registrada — no se permite responderla dos veces.');
+    }
+
+    $preguntas = listarPreguntasEncuestaActivas($enlace_db);
+    if (count($preguntas) === 0) {
+        throw new RuntimeException('No hay preguntas de encuesta configuradas.');
+    }
+    foreach ($preguntas as $p) {
+        $valor = $respuestas[$p['gcep_codigo']] ?? null;
+        if ($valor === null || (int) $valor < 1 || (int) $valor > 5) {
+            throw new RuntimeException('Debe responder todas las preguntas de la encuesta (escala 1 a 5).');
+        }
+    }
+
+    $enlace_db->begin_transaction();
+    try {
+        $insertar_cabecera = $enlace_db->prepare(
+            "INSERT INTO `tb_gestion_coaching_encuesta` (`gcen_paquete`, `gcen_escala_max`, `gcen_usuario`) VALUES (?, 5, ?)"
+        );
+        $insertar_cabecera->bind_param('ss', $gcp_id, $usu_id);
+        if (!$insertar_cabecera->execute()) {
+            throw new RuntimeException('No fue posible registrar la encuesta: ' . $enlace_db->error);
+        }
+        $encuesta_id = (int) $insertar_cabecera->insert_id;
+
+        $insertar_detalle = $enlace_db->prepare(
+            "INSERT INTO `tb_gestion_coaching_encuesta_respuesta` (`gcenr_encuesta`, `gcenr_pregunta_codigo`, `gcenr_pregunta_texto`, `gcenr_respuesta_valor`) VALUES (?, ?, ?, ?)"
+        );
+        foreach ($preguntas as $p) {
+            $valor = (int) $respuestas[$p['gcep_codigo']];
+            $insertar_detalle->bind_param('issi', $encuesta_id, $p['gcep_codigo'], $p['gcep_texto'], $valor);
+            if (!$insertar_detalle->execute()) {
+                throw new RuntimeException('No fue posible registrar una respuesta de la encuesta: ' . $enlace_db->error);
+            }
+        }
+        $enlace_db->commit();
+    } catch (Throwable $e) {
+        $enlace_db->rollback();
+        throw $e;
+    }
+}
+
+/** Trae la encuesta ya respondida (cabecera + respuestas), o null si no existe. */
+function obtenerEncuestaPercepcion(mysqli $enlace_db, string $gcp_id): ?array
+{
+    $consulta = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_encuesta` WHERE `gcen_paquete` = ? LIMIT 1");
+    $consulta->bind_param('s', $gcp_id);
+    $consulta->execute();
+    $cabecera = $consulta->get_result()->fetch_assoc();
+    if (!$cabecera) {
+        return null;
+    }
+
+    $consulta_resp = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_encuesta_respuesta` WHERE `gcenr_encuesta` = ? ORDER BY `gcenr_id`");
+    $consulta_resp->bind_param('i', $cabecera['gcen_id']);
+    $consulta_resp->execute();
+    $cabecera['respuestas'] = $consulta_resp->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    return $cabecera;
+}
+
+function guardarIndicadoresPaquete(mysqli $enlace_db, string $gcp_id, array $indicador_ids): void
+{
+    $enlace_db->begin_transaction();
+    try {
+        $borrar = $enlace_db->prepare("DELETE FROM `tb_gestion_coaching_paquete_indicador` WHERE `gcpi_paquete` = ?");
+        $borrar->bind_param('s', $gcp_id);
+        $borrar->execute();
+
+        if (count($indicador_ids) > 0) {
+            $insertar = $enlace_db->prepare("INSERT INTO `tb_gestion_coaching_paquete_indicador` (`gcpi_paquete`, `gcpi_indicador_id`) VALUES (?, ?)");
+            foreach (array_unique(array_map('intval', $indicador_ids)) as $id) {
+                $insertar->bind_param('si', $gcp_id, $id);
+                $insertar->execute();
+            }
+        }
+        $enlace_db->commit();
+    } catch (Throwable $e) {
+        $enlace_db->rollback();
+        throw $e;
+    }
+}
+
+function listarIndicadoresPaquete(mysqli $enlace_db, string $gcp_id): array
+{
+    $consulta = $enlace_db->prepare(
+        "SELECT I.`gci_id`, I.`gci_nombre` FROM `tb_gestion_coaching_paquete_indicador` AS PI
+         INNER JOIN `tb_gestion_coaching_indicador` AS I ON PI.`gcpi_indicador_id` = I.`gci_id`
+         WHERE PI.`gcpi_paquete` = ? ORDER BY I.`gci_nombre`"
+    );
+    $consulta->bind_param('s', $gcp_id);
+    $consulta->execute();
+    return $consulta->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+/** Inserta o actualiza el detalle de escalamiento disciplinario (1 fila por paquete). */
+function guardarEscalamiento(mysqli $enlace_db, string $gcp_id, array $datos, string $usu_id): void
+{
+    $insertar = $enlace_db->prepare(
+        "INSERT INTO `tb_gestion_coaching_escalamiento`
+            (`gcesc_paquete`, `gcesc_asunto`, `gcesc_fecha_hora_envio`, `gcesc_destinatario_nombre`, `gcesc_destinatario_correo`, `gcesc_observaciones`, `gcesc_registro_usuario`)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            `gcesc_asunto` = VALUES(`gcesc_asunto`),
+            `gcesc_fecha_hora_envio` = VALUES(`gcesc_fecha_hora_envio`),
+            `gcesc_destinatario_nombre` = VALUES(`gcesc_destinatario_nombre`),
+            `gcesc_destinatario_correo` = VALUES(`gcesc_destinatario_correo`),
+            `gcesc_observaciones` = VALUES(`gcesc_observaciones`)"
+    );
+    $insertar->bind_param(
+        'sssssss',
+        $gcp_id,
+        $datos['asunto'],
+        $datos['fecha_hora_envio'],
+        $datos['destinatario_nombre'],
+        $datos['destinatario_correo'],
+        $datos['observaciones'],
+        $usu_id
+    );
+    if (!$insertar->execute()) {
+        throw new RuntimeException('No fue posible guardar el escalamiento: ' . $enlace_db->error);
+    }
+}
+
+function obtenerEscalamiento(mysqli $enlace_db, string $gcp_id): ?array
+{
+    $consulta = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_escalamiento` WHERE `gcesc_paquete` = ? LIMIT 1");
+    $consulta->bind_param('s', $gcp_id);
+    $consulta->execute();
+    $fila = $consulta->get_result()->fetch_assoc();
+    return $fila ?: null;
+}
+
 
 /**
  * Crea un paquete GLOBAL (Modelo 2): manual, creado por un supervisor,
@@ -740,7 +978,7 @@ function listarTiposActivos(mysqli $enlace_db): array
 
 function listarIndicadoresActivos(mysqli $enlace_db): array
 {
-    $resultado = $enlace_db->query("SELECT `gci_id`, `gci_nombre` FROM `tb_gestion_coaching_indicador` WHERE `gci_activo` = 1 ORDER BY `gci_nombre`");
+    $resultado = $enlace_db->query("SELECT `gci_id`, `gci_nombre`, `gci_categoria` FROM `tb_gestion_coaching_indicador` WHERE `gci_activo` = 1 ORDER BY `gci_categoria` IS NULL, `gci_categoria`, `gci_nombre`");
     return $resultado->fetch_all(MYSQLI_ASSOC);
 }
 /**
@@ -766,6 +1004,3 @@ function registrarErrorCoaching(mysqli $enlace_db, string $referencia, string $d
     $log->bind_param('sssss', $modulo, $tipo, $accion, $detalle_completo, $usuario);
     $log->execute();
 }
-
-
-

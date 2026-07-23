@@ -61,7 +61,9 @@
             $respuesta_accion = "<script type='text/javascript'>alertify.warning('Solicitud inválida (CSRF). Recargue e intente de nuevo.', 0);</script>";
         } else {
             try {
-                $html = construirHtmlDocumentoRetroalimentacion($gcp_id, $paquete, $retro, $compromisos, $respuesta_agente);
+                $indicadores_adicionales = listarIndicadoresPaquete($enlace_db, $gcp_id);
+                $escalamiento = obtenerEscalamiento($enlace_db, $gcp_id);
+                $html = construirHtmlDocumentoPorTipo($gcp_id, $paquete, $retro, $compromisos, $respuesta_agente, $indicadores_adicionales, $escalamiento);
                 $tipo_documento = $paquete['gct_codigo'] === 'ACTA_COMPROMISO' ? 'Acta_Compromiso' : 'Retroalimentacion';
                 generarDocumentoCoaching($enlace_db, $gcp_id, $tipo_documento, $html, $_SESSION['usu_id']);
 
@@ -91,7 +93,7 @@
         .coaching_doc_icono { text-align: center; padding: 10px 0 15px; }
         .coaching_doc_icono .fas { font-size: 42px; color: #4CAF50; }
 
-        .coaching_resumen_item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #F0F0F0; }
+        .coaching_resumen_item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #F2F2F2; }
         .coaching_resumen_item:last-child { border-bottom: none; }
         .coaching_resumen_item .fas { width: 16px; text-align: center; }
         .coaching_resumen_ok { color: #00BF6F; }
@@ -99,7 +101,7 @@
 
         .coaching_aviso_pendiente {
             background: #FFF8E6; border: 1px solid #F39C12; border-radius: 6px;
-            padding: 10px 12px; font-size: 11px; color: #7a5b00; margin-top: 14px; text-align: left;
+            padding: 10px 12px; font-size: 11px; color: #1A1A1A; margin-top: 14px; text-align: left;
         }
     </style>
 </head>
@@ -129,7 +131,7 @@
                     <div class="p-4 text-center">
                         <div class="coaching_doc_icono"><span class="fas fa-file-pdf"></span></div>
 
-                        <p style="font-size:12px; color:#333;">
+                        <p style="font-size:12px; color:#1A1A1A;">
                             <?php if ($paquete['gce_codigo'] === 'PENDIENTE_FIRMA_AGENTE'): ?>
                                 Ya existe un documento firmable para este paquete. Al generar de nuevo se creará
                                 <strong>una nueva versión</strong> — la anterior queda archivada, nunca se sobrescribe,
@@ -140,7 +142,7 @@
                             <?php endif; ?>
                         </p>
 
-                        <div class="text-left mt-3 mb-3" style="border:1px solid #E3E6EA; border-radius:6px; padding:10px 14px;">
+                        <div class="text-left mt-3 mb-3" style="border:1px solid #F2F2F2; border-radius:6px; padding:10px 14px;">
                             <div class="coaching_resumen_item">
                                 <span class="fas fa-check-circle coaching_resumen_ok"></span> Causa raíz y estrategia correctiva
                             </div>
@@ -190,6 +192,3 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
-
-
-

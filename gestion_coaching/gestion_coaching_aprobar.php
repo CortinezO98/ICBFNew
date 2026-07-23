@@ -117,16 +117,16 @@
         .coaching_breadcrumb { font-size: 11px; color: #6E6E6E; margin-bottom: 10px; }
         .coaching_breadcrumb a { color: #4CAF50; }
         label.coaching_label { font-weight: bold; font-size: 12px; margin-bottom: 4px; display: block; color: #1A1A1A; }
-        .coaching_compromiso_item { padding: 10px; border-bottom: 1px solid #F0F0F0; font-size: 12px; }
+        .coaching_compromiso_item { padding: 10px; border-bottom: 1px solid #F2F2F2; font-size: 12px; }
         .coaching_estado_naranja { color: #F39C12; border: solid 1px #F39C12; background-color: rgba(243, 156, 18, 0.15); }
         .coaching_estado_verde { color: #00BF6F; border: solid 1px #00BF6F; background-color: rgba(40, 180, 99, 0.15); }
         .coaching_estado_rojo { color: #FF0000; border: solid 1px #FF0000; background-color: rgba(255, 0, 0, 0.15); }
         .coaching_estado_pill { display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 10px; }
         .coaching_compromiso_acciones { margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-        .coaching_compromiso_acciones input[type="text"] { flex: 1; min-width: 160px; font-size: 11px; padding: 4px 6px; height: auto !important; border: 1px solid #D8D8D8; border-radius: 4px; }
+        .coaching_compromiso_acciones input[type="text"] { flex: 1; min-width: 160px; font-size: 11px; padding: 4px 6px; height: auto !important; border: 1px solid #F2F2F2; border-radius: 4px; }
         .btn-mini { font-size: 11px; padding: 3px 10px; border-radius: 4px; border: 0; cursor: pointer; }
-        .btn-mini-verde { background: #00BF6F; color: #fff; }
-        .btn-mini-rojo { background: #FF0000; color: #fff; }
+        .btn-mini-verde { background: #00BF6F; color: #FFFFFF; }
+        .btn-mini-rojo { background: #FF0000; color: #FFFFFF; }
         button[disabled] { opacity: .7; cursor: not-allowed; }
     </style>
 </head>
@@ -238,6 +238,3 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
-
-
-
