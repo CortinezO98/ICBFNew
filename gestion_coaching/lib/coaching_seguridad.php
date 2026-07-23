@@ -153,3 +153,6 @@ function usuarioPuedeVerPaquete(mysqli $enlace_db, string $usu_id, string $perfi
     }
     return false;
 }
+
+
+

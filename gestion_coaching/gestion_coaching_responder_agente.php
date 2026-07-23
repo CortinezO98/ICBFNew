@@ -7,6 +7,7 @@
     require_once("lib/coaching_datos.php");
     require_once("lib/coaching_transiciones.php");
     require_once("lib/coaching_documentos.php");
+    require_once("lib/coaching_complementos.php");
 
     $titulo_header = "Coaching | Mi respuesta";
 
@@ -61,10 +62,17 @@
             $acciones_no_reincidencia = validar_input($_POST['acciones_no_reincidencia']);
             $aspectos_relevantes      = validar_input($_POST['aspectos_relevantes']);
             $observaciones            = validar_input($_POST['observaciones']);
+            $que                      = validar_input($_POST['que'] ?? '');
+            $como                     = validar_input($_POST['como'] ?? '');
+            $cuando                   = validar_input($_POST['cuando'] ?? '');
             $confirma_claridad        = isset($_POST['confirma_claridad']);
 
             if ($compromiso_general === '') { $errores_campo['compromiso_general'] = 'Este campo es obligatorio.'; }
             if (!$confirma_claridad) { $errores_campo['confirma_claridad'] = 'Debe confirmar que la retroalimentación fue clara.'; }
+            if ($que === '') { $errores_campo['que'] = 'Indique qué hará.'; }
+            if ($como === '') { $errores_campo['como'] = 'Indique cómo lo hará.'; }
+            if ($cuando === '') { $errores_campo['cuando'] = 'Indique cuándo lo hará.'; }
+            if (!encuestaCompleta($enlace_db, $gcp_id)) { $errores_campo['encuesta'] = 'Debe responder primero la encuesta del espacio.'; }
 
             if (count($errores_campo) > 0) {
                 $respuesta_accion = "<script type='text/javascript'>alertify.warning('Revise los campos marcados en rojo.', 0);</script>";
@@ -73,6 +81,7 @@
                     guardarRespuestaAgente($enlace_db, $gcp_id, [
                         'compromiso_general'       => $compromiso_general,
                         'acciones_no_reincidencia' => $acciones_no_reincidencia !== '' ? $acciones_no_reincidencia : null,
+                        'que' => $que, 'como' => $como, 'cuando' => $cuando,
                         'aspectos_relevantes'      => $aspectos_relevantes !== '' ? $aspectos_relevantes : null,
                         'confirma_claridad'        => $confirma_claridad,
                         'observaciones'            => $observaciones !== '' ? $observaciones : null,
@@ -190,6 +199,7 @@
                 </div>
                 <?php endif; ?>
 
+                <?php if (!encuestaCompleta($enlace_db, $gcp_id)): ?><div class="alert alert-warning">Antes de enviar su respuesta debe <a href="gestion_coaching_encuesta.php?reg=<?php echo base64_encode($gcp_id); ?>"><b>responder la encuesta del espacio</b></a>.</div><?php endif; ?>
                 <form method="POST" action="" id="form_responder">
                     <input type="hidden" name="_csrf_token" value="<?php echo htmlspecialchars($_SESSION['_csrf_token']); ?>">
 
@@ -205,6 +215,8 @@
                                 <label class="coaching_label" for="acciones_no_reincidencia">Acciones para evitar reincidencia <span style="font-weight:normal;color:#6E6E6E;font-size:10px;">(opcional)</span></label>
                                 <textarea name="acciones_no_reincidencia" id="acciones_no_reincidencia" class="form-control" style="height:70px;"><?php echo isset($_POST['acciones_no_reincidencia']) ? htmlspecialchars($_POST['acciones_no_reincidencia']) : ''; ?></textarea>
                             </div>
+
+                            <div class="row mt-3"><div class="col-md-4"><label class="coaching_label" for="que">Qué hará</label><textarea name="que" id="que" class="form-control" required><?php echo htmlspecialchars($_POST['que'] ?? ''); ?></textarea></div><div class="col-md-4"><label class="coaching_label" for="como">Cómo lo hará</label><textarea name="como" id="como" class="form-control" required><?php echo htmlspecialchars($_POST['como'] ?? ''); ?></textarea></div><div class="col-md-4"><label class="coaching_label" for="cuando">Cuándo lo hará</label><input type="date" name="cuando" id="cuando" class="form-control" value="<?php echo htmlspecialchars($_POST['cuando'] ?? ''); ?>" required></div></div>
 
                             <div class="mt-3">
                                 <label class="coaching_label" for="aspectos_relevantes">Aspectos relevantes de la retroalimentación <span style="font-weight:normal;color:#6E6E6E;font-size:10px;">(opcional)</span></label>
@@ -265,3 +277,6 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
+
+
+

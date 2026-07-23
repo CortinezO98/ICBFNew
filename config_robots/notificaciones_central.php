@@ -171,3 +171,6 @@
     // Opcional (no afecta funcionalidad): cerrar stmt
     $stmt_update_nc->close();
 ?>
+
+
+

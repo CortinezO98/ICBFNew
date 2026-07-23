@@ -81,6 +81,10 @@
         <li class="submenu"><a href="#"><div class="opcion_icon"><span class="fas fa-graduation-cap"></span></div><p class="texto_menu">Coaching<span class="fas fa-chevron-down submenu_icon"></span></p></a>
             <ul>
                 <li><a href="../gestion_coaching/gestion_coaching.php?pagina=1&id=null&est=Pendientes"><div class="opcion_icon"><span class="fas fa-inbox"></span></div><p class="texto_menu">Mis paquetes</p></a></li>
+                <li><a href="../gestion_coaching/gestion_coaching_acompanamientos.php"><div class="opcion_icon"><span class="fas fa-clipboard-check"></span></div><p class="texto_menu">Acompañamientos</p></a></li>
+                <?php if (in_array($_SESSION['modulos_acceso_permisos']['Coaching'], ['Supervisor','Gestor','Administrador'], true)): ?>
+                <li><a href="../gestion_coaching/gestion_coaching_acompanamiento_crear.php"><div class="opcion_icon"><span class="fas fa-user-plus"></span></div><p class="texto_menu">Nuevo acompañamiento</p></a></li>
+                <?php endif; ?>
             </ul>
             <?php if (isset($_SESSION['modulos_acceso_permisos']['Coaching-Reportes']) AND $_SESSION['modulos_acceso_permisos']['Coaching-Reportes']!=""): ?>
             <ul>
@@ -115,3 +119,6 @@
         <?php endif; ?>
     </ul>
 </div>
+
+
+

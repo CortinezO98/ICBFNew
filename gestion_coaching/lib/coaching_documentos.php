@@ -115,48 +115,20 @@ function descargarDocumentoCoaching(array $documento): void
     readfile($documento['gcd_ruta']);
 }
 
-/**
- * Construye el HTML fuente del documento de Retroalimentación/Acta de
- * Compromiso a partir de los datos ya diligenciados. Compartida entre la
- * generación automática (gestion_coaching_responder_agente.php) y la
- * regeneración manual (gestion_coaching_documento_generar.php) para no
- * duplicar el layout en dos archivos. Layout simple y funcional; el diseño
- * definitivo (basado en los 3 Word compartidos) se ajusta aparte, sin tocar
- * la lógica de generación/versionamiento.
- */
-function construirHtmlDocumentoRetroalimentacion(string $gcp_id, array $paquete, ?array $retro, array $compromisos, ?array $respuesta): string
-{
-    $filas_compromisos = '';
-    foreach ($compromisos as $c) {
-        $filas_compromisos .= '<tr>'
-            . '<td>' . htmlspecialchars($c['gccm_descripcion']) . '</td>'
-            . '<td>' . htmlspecialchars($c['gccm_que'] ?? '') . '</td>'
-            . '<td>' . htmlspecialchars($c['gccm_como'] ?? '') . '</td>'
-            . '<td>' . ($c['gccm_fecha_limite'] ? date('d/m/Y', strtotime($c['gccm_fecha_limite'])) : '-') . '</td>'
-            . '</tr>';
-    }
 
-    $compromiso_general = $respuesta['gcra_compromiso_general'] ?? '(pendiente de respuesta del agente)';
-    $acciones_no_reincidencia = $respuesta['gcra_acciones_no_reincidencia'] ?? '';
-
-    return '
-    <h2 style="color:#4CAF50;">' . htmlspecialchars($paquete['gct_nombre']) . ' — ' . htmlspecialchars($gcp_id) . '</h2>
-    <p><strong>Agente:</strong> ' . htmlspecialchars($paquete['agente_nombre'] ?? '') . '<br>
-    <strong>Supervisor:</strong> ' . htmlspecialchars($paquete['supervisor_nombre'] ?? '') . '<br>
-    <strong>Fecha:</strong> ' . date('d/m/Y') . '</p>
-
-    <h3>Retroalimentación</h3>
-    <p><strong>Causa raíz:</strong> ' . nl2br(htmlspecialchars($retro['gcr_causa_raiz'] ?? '')) . '</p>
-    <p><strong>Estrategia correctiva:</strong> ' . nl2br(htmlspecialchars($retro['gcr_estrategia_correctiva'] ?? '')) . '</p>
-
-    <h3>Compromisos</h3>
-    <table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse:collapse;">
-        <tr style="background:#4CAF50; color:#fff;"><th>Descripción</th><th>Qué</th><th>Cómo</th><th>Fecha límite</th></tr>
-        ' . $filas_compromisos . '
-    </table>
-
-    <h3>Respuesta del agente</h3>
-    <p><strong>Compromiso general:</strong> ' . nl2br(htmlspecialchars($compromiso_general)) . '</p>
-    <p><strong>Acciones para no reincidencia:</strong> ' . nl2br(htmlspecialchars($acciones_no_reincidencia)) . '</p>
-    ';
+/** Renderiza la plantilla oficial según el tipo del paquete. */
+function construirHtmlDocumentoCoaching(string $gcp_id,array $paquete,?array $retro,array $compromisos,?array $respuesta,?array $encuesta=null,?array $detalle=null): string {
+    $codigo=$paquete['gct_codigo']??'RETROALIMENTACION';
+    $map=['RETROALIMENTACION'=>'retroalimentacion.php','ACTA_COMPROMISO'=>'acta_compromiso.php','FELICITACION'=>'felicitacion.php','RECONOCIMIENTO'=>'reconocimiento.php'];
+    $archivo=__DIR__.'/../plantillas_pdf/'.($map[$codigo]??$map['RETROALIMENTACION']);
+    if(!is_readable($archivo)) throw new RuntimeException('No existe la plantilla PDF requerida: '.$codigo);
+    ob_start(); require $archivo; return (string)ob_get_clean();
+}
+/** Alias compatible con llamadas existentes. */
+function construirHtmlDocumentoRetroalimentacion(string $gcp_id,array $paquete,?array $retro,array $compromisos,?array $respuesta): string {
+    require_once __DIR__.'/coaching_complementos.php';
+    global $enlace_db;
+    $encuesta=isset($enlace_db)&&$enlace_db instanceof mysqli?obtenerEncuestaPaquete($enlace_db,$gcp_id):null;
+    $detalle=isset($enlace_db)&&$enlace_db instanceof mysqli?obtenerDetalleTipo($enlace_db,$gcp_id):null;
+    return construirHtmlDocumentoCoaching($gcp_id,$paquete,$retro,$compromisos,$respuesta,$encuesta,$detalle);
 }

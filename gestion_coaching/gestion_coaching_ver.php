@@ -407,7 +407,9 @@
             <?php if ($documento_vigente): ?>
             <div class="col-md-4">
                 <div class="cuadro_dash mb-3">
-                    <div class="cuadro_dash_titulo p-2"><span class="fas fa-file-pdf"></span> Documento</div>
+                    <div class="cuadro_dash mb-3"><div class="cuadro_dash_titulo p-2"><span class="fas fa-poll"></span> Encuesta del espacio</div><div class="p-3"><?php if ($encuesta_coaching): ?><span class="badge badge-success">Respondida</span> <?php echo validar_output($encuesta_coaching['gce_registro_fecha']); ?><?php else: ?><span class="badge badge-warning">Pendiente</span><?php if ($paquete['gcp_agente_id'] === $_SESSION['usu_id']): ?> <a class="btn btn-sm btn-success" href="gestion_coaching_encuesta.php?reg=<?php echo base64_encode($gcp_id); ?>">Responder encuesta</a><?php endif; ?><?php endif; ?></div></div>
+<div class="cuadro_dash mb-3"><div class="cuadro_dash_titulo p-2"><span class="fas fa-paperclip"></span> Soportes</div><div class="p-3"><a class="btn btn-sm btn-corp" href="gestion_coaching_soporte_cargar.php?reg=<?php echo base64_encode($gcp_id); ?>"><span class="fas fa-plus"></span> Adjuntar</a><div class="mt-2"><?php if (!$soportes_coaching): ?><span class="text-muted">Sin soportes.</span><?php else: ?><?php foreach ($soportes_coaching as $s): ?><div><a href="gestion_coaching_soporte_descargar.php?id=<?php echo (int)$s['gcs_id']; ?>"><?php echo validar_output($s['gcs_nombre_original']); ?></a> <small>(<?php echo validar_output($s['gcs_tipo_documental']); ?>)</small></div><?php endforeach; ?><?php endif; ?></div></div></div>
+<div class="cuadro_dash_titulo p-2"><span class="fas fa-file-pdf"></span> Documento</div>
                     <div class="p-3">
                         <p class="mb-2" style="font-size:12px;">
                             Versión vigente: <strong>v<?php echo (int) $documento_vigente['gcd_version']; ?></strong>
@@ -440,3 +442,6 @@
     <?php include("../footer.php"); ?>
 </body>
 </html>
+
+
+

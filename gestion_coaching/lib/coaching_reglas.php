@@ -94,3 +94,6 @@ function puedeCerrarse(array $paquete, array $tipo, array $compromisos, ?array $
 
     return $errores;
 }
+
+
+

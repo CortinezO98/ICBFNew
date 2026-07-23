@@ -136,3 +136,5 @@ function obtenerSnapshotMonitoreoCalidad(mysqli $enlace_db, string $gcm_id): ?ar
 // Nota: registrarErrorCoaching() ahora vive en coaching_datos.php (capa
 // compartida), porque coaching_firma.php también necesita auditar
 // incidentes sin depender de este archivo.
+
+

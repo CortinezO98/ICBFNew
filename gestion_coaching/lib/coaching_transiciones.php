@@ -139,3 +139,6 @@ function resolverPerfilActuante(string $usu_id_actor, array $paquete): string
     // esos perfiles).
     return '__SIN_RELACION__';
 }
+
+
+

@@ -90,3 +90,6 @@ if ($coaching_widget_perfil !== null && isset($enlace_db, $_SESSION['usu_id'])) 
         <?php
     }
 }
+
+
+

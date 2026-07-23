@@ -594,32 +594,10 @@ function actualizarEstadoCompromiso(mysqli $enlace_db, int $gccm_id, string $gcp
 /** Inserta (o actualiza) la respuesta del agente. */
 function guardarRespuestaAgente(mysqli $enlace_db, string $gcp_id, array $datos, string $usu_id): void
 {
-    $confirma = $datos['confirma_claridad'] ? 1 : 0;
-    $insertar = $enlace_db->prepare(
-        "INSERT INTO `tb_gestion_coaching_respuesta_agente`
-            (`gcra_paquete`, `gcra_compromiso_general`, `gcra_acciones_no_reincidencia`,
-             `gcra_aspectos_relevantes`, `gcra_confirma_claridad`, `gcra_observaciones`, `gcra_usuario`)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-            `gcra_compromiso_general` = VALUES(`gcra_compromiso_general`),
-            `gcra_acciones_no_reincidencia` = VALUES(`gcra_acciones_no_reincidencia`),
-            `gcra_aspectos_relevantes` = VALUES(`gcra_aspectos_relevantes`),
-            `gcra_confirma_claridad` = VALUES(`gcra_confirma_claridad`),
-            `gcra_observaciones` = VALUES(`gcra_observaciones`)"
-    );
-    $insertar->bind_param(
-        'ssssiss',
-        $gcp_id,
-        $datos['compromiso_general'],
-        $datos['acciones_no_reincidencia'],
-        $datos['aspectos_relevantes'],
-        $confirma,
-        $datos['observaciones'],
-        $usu_id
-    );
-    if (!$insertar->execute()) {
-        throw new RuntimeException('No fue posible guardar la respuesta del agente: ' . $enlace_db->error);
-    }
+    $sql="INSERT INTO tb_gestion_coaching_respuesta_agente(gcra_paquete,gcra_compromiso_general,gcra_acciones_no_reincidencia,gcra_que,gcra_como,gcra_cuando,gcra_aspectos_relevantes,gcra_confirma_claridad,gcra_observaciones,gcra_usuario) VALUES(?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE gcra_compromiso_general=VALUES(gcra_compromiso_general),gcra_acciones_no_reincidencia=VALUES(gcra_acciones_no_reincidencia),gcra_que=VALUES(gcra_que),gcra_como=VALUES(gcra_como),gcra_cuando=VALUES(gcra_cuando),gcra_aspectos_relevantes=VALUES(gcra_aspectos_relevantes),gcra_confirma_claridad=VALUES(gcra_confirma_claridad),gcra_observaciones=VALUES(gcra_observaciones),gcra_usuario=VALUES(gcra_usuario),gcra_registro_fecha=NOW()";
+    $s=$enlace_db->prepare($sql);$claridad=!empty($datos['confirma_claridad'])?1:0;
+    $s->bind_param('sssssssiss',$gcp_id,$datos['compromiso_general'],$datos['acciones_no_reincidencia'],$datos['que'],$datos['como'],$datos['cuando'],$datos['aspectos_relevantes'],$claridad,$datos['observaciones'],$usu_id);
+    if(!$s->execute()) throw new RuntimeException('No fue posible guardar la respuesta del agente.');
 }
 
 function obtenerRespuestaAgente(mysqli $enlace_db, string $gcp_id): ?array
@@ -788,3 +766,6 @@ function registrarErrorCoaching(mysqli $enlace_db, string $referencia, string $d
     $log->bind_param('sssss', $modulo, $tipo, $accion, $detalle_completo, $usuario);
     $log->execute();
 }
+
+
+
