@@ -101,10 +101,20 @@
 
                     guardarCompromisos($enlace_db, $gcp_id, $compromisos_post, $_SESSION['usu_id']);
 
-                    // 3) Envía al agente.
-                    ejecutarTransicion($enlace_db, $gcp_id, 'ENVIAR_A_AGENTE', $_SESSION['usu_id'], $_SERVER['REMOTE_ADDR'] ?? null, null);
+                    // 3) Envía al agente — salvo Escalamiento/No renovación, que son
+                    // 100% internos y nunca llegan a la bandeja del agente (acta de
+                    // reunión: "acciones 4-5... no se parametrizarán en el form para
+                    // colaboradores").
+                    $es_interno = in_array($paquete['gct_codigo'], ['ESCALAMIENTO_DISCIPLINARIO', 'NO_RENOVACION'], true);
+                    if ($es_interno) {
+                        ejecutarTransicion($enlace_db, $gcp_id, 'ENVIAR_INTERNO', $_SESSION['usu_id'], $_SERVER['REMOTE_ADDR'] ?? null, null);
+                        $mensaje_exito = 'Registro interno guardado. Listo para cierre — el colaborador no participa en este tipo de paquete.';
+                    } else {
+                        ejecutarTransicion($enlace_db, $gcp_id, 'ENVIAR_A_AGENTE', $_SESSION['usu_id'], $_SERVER['REMOTE_ADDR'] ?? null, null);
+                        $mensaje_exito = 'Retroalimentación enviada al agente.';
+                    }
 
-                    $respuesta_accion = "<script type='text/javascript'>alertify.success('Retroalimentación enviada al agente.', 0); setTimeout(function(){ window.location='gestion_coaching_ver.php?reg=" . base64_encode($gcp_id) . "'; }, 1200);</script>";
+                    $respuesta_accion = "<script type='text/javascript'>alertify.success('" . addslashes($mensaje_exito) . "', 0); setTimeout(function(){ window.location='gestion_coaching_ver.php?reg=" . base64_encode($gcp_id) . "'; }, 1200);</script>";
                 } catch (Throwable $e) {
                     $respuesta_accion = "<script type='text/javascript'>alertify.warning('" . addslashes($e->getMessage()) . "', 0);</script>";
                 }

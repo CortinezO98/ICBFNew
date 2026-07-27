@@ -32,7 +32,8 @@ function firmarDocumentoCoaching(
     string $usu_id,
     string $rol,
     string $ip,
-    ?string $user_agent
+    ?string $user_agent,
+    ?string $firma_imagen_base64 = null
 ): int {
     // Bloque 1: validar + registrar la firma, en su propia transacción.
     // No se anida con ejecutarTransicion() a propósito (mysqli no soporta
@@ -85,7 +86,8 @@ function firmarDocumentoCoaching(
             $hashActual,
             $ip,
             $user_agent,
-            COACHING_TEXTO_CONSENTIMIENTO_V1
+            COACHING_TEXTO_CONSENTIMIENTO_V1,
+            $firma_imagen_base64
         );
 
         $enlace_db->commit();
@@ -102,6 +104,3 @@ function firmarDocumentoCoaching(
 
     return $gcf_id;
 }
-
-
-

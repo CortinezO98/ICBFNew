@@ -46,6 +46,7 @@
             if ($agente_id === '') { $errores_campo['agente_id'] = 'Seleccione un agente.'; }
             if (!in_array($tipo_codigo, $tipos_validos, true)) { $errores_campo['tipo_codigo'] = 'Seleccione un tipo de paquete válido.'; }
             if (count($indicador_ids) === 0) { $errores_campo['indicadores'] = 'Seleccione al menos un indicador.'; }
+            if (count($indicador_ids) > 5) { $errores_campo['indicadores'] = 'Máximo 5 indicadores por paquete.'; }
             if (!in_array($prioridad, $prioridades_validas, true)) { $errores_campo['prioridad'] = 'Seleccione una prioridad válida.'; }
 
             $es_escalamiento = in_array($tipo_codigo, $tipos_con_escalamiento, true);
@@ -259,7 +260,7 @@
                     <div class="cuadro_dash mb-3">
                         <div class="cuadro_dash_titulo p-2"><span class="coaching_paso_numero">2</span> Indicadores objeto de seguimiento</div>
                         <div class="p-3">
-                            <p class="descripcion-seccion-conocimiento mb-2">Puede seleccionar uno o varios indicadores.</p>
+                            <p class="descripcion-seccion-conocimiento mb-2">Puede seleccionar hasta 5 indicadores.</p>
                             <div class="coaching_indicador_caja <?php echo isset($errores_campo['indicadores']) ? 'coaching_campo_error' : ''; ?>">
                                 <?php $seleccionados = array_map('strval', $_POST['indicadores'] ?? []); ?>
                                 <?php foreach ($indicadores_por_categoria as $categoria => $items): ?>
@@ -419,9 +420,14 @@
 
             var checksIndicadores = document.querySelectorAll('.coaching_indicador_check');
             var contadorIndicadores = document.getElementById('contador_indicadores');
+            var LIMITE_INDICADORES = 5;
             function actualizarContadorIndicadores() {
-                var n = document.querySelectorAll('.coaching_indicador_check:checked').length;
-                contadorIndicadores.textContent = n + ' seleccionado(s)';
+                var marcados = document.querySelectorAll('.coaching_indicador_check:checked').length;
+                contadorIndicadores.textContent = marcados + ' / ' + LIMITE_INDICADORES + ' seleccionado(s)';
+                contadorIndicadores.style.color = marcados >= LIMITE_INDICADORES ? '#FF0000' : '#6E6E6E';
+                checksIndicadores.forEach(function (c) {
+                    if (!c.checked) { c.disabled = marcados >= LIMITE_INDICADORES; }
+                });
             }
             checksIndicadores.forEach(function (c) { c.addEventListener('change', actualizarContadorIndicadores); });
             actualizarContadorIndicadores();

@@ -8,6 +8,8 @@
     require_once("lib/coaching_datos.php");
 
     $titulo_header = "Coaching | Detalle";
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
 
     $perfil_coaching = coachingPerfilUsuarioActual();
     if ($perfil_coaching === null) {
@@ -76,6 +78,7 @@
         require_once("lib/coaching_complementos.php");
     }
     $soportes_paquete = listarSoportesCoaching($enlace_db, $gcp_id);
+    $hallazgos_paquete = listarHallazgosPaquete($enlace_db, $gcp_id);
 
     // Historial (timeline) - inmutable, orden cronológico
     $consulta_historial = $enlace_db->prepare(
@@ -161,7 +164,8 @@
         $mapa = [
             'ASIGNADO'               => 'El supervisor debe iniciar la retroalimentación de este paquete.',
             'PENDIENTE_SUPERVISOR'   => 'El supervisor debe completar la retroalimentación y enviarla al agente.',
-            'PENDIENTE_AGENTE'       => $requiere_respuesta ? 'El agente debe registrar su respuesta y compromiso.' : 'El agente debe acusar recibido del reconocimiento.',
+            'PENDIENTE_AGENTE'       => $requiere_respuesta ? 'El agente debe registrar su respuesta y compromiso (o refutar si no está de acuerdo).' : 'El agente debe acusar recibido del reconocimiento.',
+            'REFUTADO'               => 'El supervisor debe revisar la refutación del agente y decidir si reenvía o cierra el paquete.',
             'RESPONDIDO_AGENTE'      => 'El sistema generará el documento para firma del agente.',
             'PENDIENTE_FIRMA_AGENTE' => 'El agente debe firmar el documento generado.',
             'EN_SEGUIMIENTO'         => 'El supervisor debe hacer seguimiento a los compromisos pendientes.',
@@ -311,6 +315,9 @@
                     <a href="gestion_coaching_retroalimentacion.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Continuar retroalimentación</a>
                 <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_AGENTE' && $perfil_coaching === 'Agente' && (int) $paquete['gct_requiere_respuesta_agente'] === 1): ?>
                     <a href="gestion_coaching_responder_agente.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Responder</a>
+                    <a href="gestion_coaching_refutar.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp-2 px-3 py-1 ml-1 d-inline-block" style="border-radius:5px;">Refutar</a>
+                <?php elseif ($paquete['gce_codigo'] === 'REFUTADO' && $perfil_coaching === 'Supervisor'): ?>
+                    <a href="gestion_coaching_revisar_refutacion.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Revisar refutación</a>
                 <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_AGENTE' && $perfil_coaching === 'Agente'): ?>
                     <a href="gestion_coaching_acuse_recibo.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Acusar recibido</a>
                 <?php elseif ($paquete['gce_codigo'] === 'RESPONDIDO_AGENTE' && in_array($perfil_coaching, ['Supervisor', 'Gestor', 'Administrador'], true)): ?>
@@ -348,6 +355,18 @@
                                 <div class="etiqueta">PECUF</div>
                                 <div class="valor"><?php echo validar_output($calidad['gcc2_nota_ecuf'] ?? '—'); ?></div>
                             </div>
+                            <div>
+                                <div class="etiqueta">IDSIM / Radicado</div>
+                                <div class="valor"><?php echo validar_output($calidad['gcc2_id_sim'] ?? '—'); ?></div>
+                            </div>
+                            <div>
+                                <div class="etiqueta">Skill / Canal</div>
+                                <div class="valor"><?php echo validar_output($calidad['gcc2_skill_interaccion'] ?? '—'); ?></div>
+                            </div>
+                            <div>
+                                <div class="etiqueta">Tipo de monitoreo</div>
+                                <div class="valor"><?php echo validar_output($calidad['gcc2_tipo_monitoreo'] ?? '—'); ?></div>
+                            </div>
                         </div>
                         <?php if (!empty($calidad['gcc2_observaciones'])): ?>
                         <div class="mt-3">
@@ -355,6 +374,25 @@
                             <div class="valor"><?php echo nl2br(validar_output($calidad['gcc2_observaciones'])); ?></div>
                         </div>
                         <?php endif; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <?php if (count($hallazgos_paquete) > 0): ?>
+                <div class="cuadro_dash mb-3">
+                    <div class="cuadro_dash_titulo p-2"><span class="fas fa-search"></span> Errores no críticos del monitoreo</div>
+                    <div class="p-3">
+                        <?php foreach ($hallazgos_paquete as $h): ?>
+                            <div style="padding:6px 0; border-bottom:1px solid #F2F2F2; font-size:12px;">
+                                <strong><?php echo validar_output($h['gcmi_descripcion'] ?? ('Pregunta ' . $h['gch_pregunta'])); ?></strong>
+                                <?php if (!empty($h['gch_afectacion'])): ?>
+                                    <div style="color:#6E6E6E; margin-top:2px;"><?php echo nl2br(validar_output($h['gch_afectacion'])); ?></div>
+                                <?php endif; ?>
+                                <?php if (!empty($h['gch_comentario'])): ?>
+                                    <div style="color:#6E6E6E; margin-top:2px; font-style:italic;">"<?php echo nl2br(validar_output($h['gch_comentario'])); ?>"</div>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
                 </div>
                 <?php endif; ?>

@@ -253,6 +253,17 @@ function crearPaqueteAutomatico(mysqli $enlace_db, array $snapshot, ?string $paq
             'SISTEMA', null);
 
         $enlace_db->commit();
+
+        // Errores no críticos del monitoreo -> hallazgos del paquete.
+        // Fuera de la transacción principal y protegido con su propio
+        // try/catch: si esto falla, el paquete YA quedó creado
+        // correctamente — no debe perderse por un problema aquí.
+        try {
+            guardarHallazgosDesdeMonitoreo($enlace_db, $gcp_id, $snapshot['monitoreo_id']);
+        } catch (Throwable $e) {
+            registrarErrorCoaching($enlace_db, $gcp_id, 'No fue posible traer los hallazgos del monitoreo: ' . $e->getMessage());
+        }
+
         return $gcp_id;
     } catch (Throwable $e) {
         $enlace_db->rollback();
@@ -424,22 +435,24 @@ function insertarFirma(
     string $hash_documento,
     string $ip,
     ?string $user_agent,
-    string $texto_consentimiento
+    string $texto_consentimiento,
+    ?string $firma_imagen_base64 = null
 ): int {
-    $tipo_firma = 'Aceptacion_Electronica';
+    $tipo_firma = $firma_imagen_base64 !== null ? 'Firma_Dibujada' : 'Aceptacion_Electronica';
     $insertar = $enlace_db->prepare(
         "INSERT INTO `tb_gestion_coaching_firma`
-            (`gcf_paquete`, `gcf_documento`, `gcf_firmante_usuario`, `gcf_firmante_rol`, `gcf_tipo_firma`,
+            (`gcf_paquete`, `gcf_documento`, `gcf_firmante_usuario`, `gcf_firmante_rol`, `gcf_tipo_firma`, `gcf_firma_imagen`,
              `gcf_hash_documento_firmado`, `gcf_ip`, `gcf_user_agent`, `gcf_consentimiento_texto`)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     $insertar->bind_param(
-        'sisssssss',
+        'sissssssss',
         $gcp_id,
         $gcd_id,
         $usu_id,
         $rol,
         $tipo_firma,
+        $firma_imagen_base64,
         $hash_documento,
         $ip,
         $user_agent,
@@ -659,63 +672,6 @@ function obtenerCampaniaYSegmentoRecienteAgente(mysqli $enlace_db, string $usu_i
     return ['campania_id' => $campania_id, 'segmento' => $segmento];
 }
 
-function listarPreguntasEncuesta(mysqli $enlace_db): array
-{
-    $resultado = $enlace_db->query("SELECT `gcep_codigo`, `gcep_texto` FROM `tb_gestion_coaching_encuesta_pregunta` WHERE `gcep_activo` = 1 ORDER BY `gcep_orden`");
-    return $resultado->fetch_all(MYSQLI_ASSOC);
-}
-
-/** Devuelve la encuesta ya diligenciada (cabecera + respuestas) o null si aún no existe. */
-function obtenerEncuestaPaquete(mysqli $enlace_db, string $gcp_id): ?array
-{
-    $consulta = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_encuesta` WHERE `gcen_paquete` = ? LIMIT 1");
-    $consulta->bind_param('s', $gcp_id);
-    $consulta->execute();
-    $cabecera = $consulta->get_result()->fetch_assoc();
-    if (!$cabecera) { return null; }
-
-    $consulta_resp = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_encuesta_respuesta` WHERE `gcenr_encuesta` = ?");
-    $consulta_resp->bind_param('i', $cabecera['gcen_id']);
-    $consulta_resp->execute();
-    $cabecera['respuestas'] = $consulta_resp->get_result()->fetch_all(MYSQLI_ASSOC);
-    return $cabecera;
-}
-
-/**
- * Registra la encuesta (cabecera + detalle) — UNA sola vez por paquete
- * (la restricción UNIQUE en `gcen_paquete` lo garantiza a nivel de base
- * de datos, no solo en la validación de esta función: prevención real de
- * doble respuesta, no solo de interfaz).
- */
-function guardarRespuestaEncuesta(mysqli $enlace_db, string $gcp_id, array $respuestas, string $usu_id): void
-{
-    if (obtenerEncuestaPaquete($enlace_db, $gcp_id) !== null) {
-        throw new RuntimeException('Esta encuesta ya fue respondida — no se puede diligenciar dos veces.');
-    }
-
-    $enlace_db->begin_transaction();
-    try {
-        $insertar_cabecera = $enlace_db->prepare("INSERT INTO `tb_gestion_coaching_encuesta` (`gcen_paquete`, `gcen_usuario`) VALUES (?, ?)");
-        $insertar_cabecera->bind_param('ss', $gcp_id, $usu_id);
-        $insertar_cabecera->execute();
-        $encuesta_id = (int) $insertar_cabecera->insert_id;
-
-        $insertar_detalle = $enlace_db->prepare(
-            "INSERT INTO `tb_gestion_coaching_encuesta_respuesta` (`gcenr_encuesta`, `gcenr_pregunta_codigo`, `gcenr_pregunta_texto`, `gcenr_respuesta_valor`) VALUES (?, ?, ?, ?)"
-        );
-        foreach ($respuestas as $r) {
-            $insertar_detalle->bind_param('issi', $encuesta_id, $r['codigo'], $r['texto'], $r['valor']);
-            $insertar_detalle->execute();
-        }
-
-        $enlace_db->commit();
-    } catch (Throwable $e) {
-        $enlace_db->rollback();
-        throw $e;
-    }
-}
-
-
 function listarPreguntasEncuestaActivas(mysqli $enlace_db): array
 {
     $resultado = $enlace_db->query("SELECT `gcep_codigo`, `gcep_texto` FROM `tb_gestion_coaching_encuesta_pregunta` WHERE `gcep_activo` = 1 ORDER BY `gcep_orden`");
@@ -800,6 +756,65 @@ function obtenerEncuestaPercepcion(mysqli $enlace_db, string $gcp_id): ?array
     $cabecera['respuestas'] = $consulta_resp->get_result()->fetch_all(MYSQLI_ASSOC);
 
     return $cabecera;
+}
+
+/**
+ * Trae los "errores no críticos" (gcmi_tipo_error = 'ENC') detectados en
+ * el monitoreo real que originó este paquete, y los deja como hallazgos
+ * dentro de Coaching — confirmado con datos reales de producción:
+ * tipo_error='ENC' + respuesta='No' = error no crítico incumplido.
+ */
+function guardarHallazgosDesdeMonitoreo(mysqli $enlace_db, string $gcp_id, string $monitoreo_id): void
+{
+    $consulta = $enlace_db->prepare(
+        "SELECT C.`gcmc_pregunta`, C.`gcmc_respuesta`, C.`gcmc_afectaciones`, C.`gcmc_comentarios`
+         FROM `tb_gestion_calidad_monitoreo_calificaciones` AS C
+         INNER JOIN `tb_gestion_calidad_matriz_item` AS I ON C.`gcmc_pregunta` = I.`gcmi_id`
+         WHERE C.`gcmc_monitoreo` = ? AND C.`gcmc_respuesta` = 'No' AND I.`gcmi_tipo_error` = 'ENC'
+         ORDER BY I.`gcmi_item_orden`"
+    );
+    $consulta->bind_param('s', $monitoreo_id);
+    $consulta->execute();
+    $filas = $consulta->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    if (count($filas) === 0) {
+        return;
+    }
+
+    $insertar = $enlace_db->prepare(
+        "INSERT INTO `tb_gestion_coaching_hallazgo`
+            (`gch_paquete`, `gch_pregunta`, `gch_respuesta`, `gch_afectacion`, `gch_comentario`, `gch_orden`)
+         VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    $orden = 0;
+    foreach ($filas as $f) {
+        $orden++;
+        $insertar->bind_param(
+            'sssssi',
+            $gcp_id,
+            $f['gcmc_pregunta'],
+            $f['gcmc_respuesta'],
+            $f['gcmc_afectaciones'],
+            $f['gcmc_comentarios'],
+            $orden
+        );
+        $insertar->execute(); // no crítico bloquear la creación del paquete por esto
+    }
+}
+
+/** Lista los hallazgos de un paquete, con la descripción real de la pregunta de la matriz. */
+function listarHallazgosPaquete(mysqli $enlace_db, string $gcp_id): array
+{
+    $consulta = $enlace_db->prepare(
+        "SELECT H.`gch_id`, H.`gch_pregunta`, H.`gch_respuesta`, H.`gch_afectacion`, H.`gch_comentario`,
+                I.`gcmi_descripcion`
+         FROM `tb_gestion_coaching_hallazgo` AS H
+         LEFT JOIN `tb_gestion_calidad_matriz_item` AS I ON H.`gch_pregunta` = I.`gcmi_id`
+         WHERE H.`gch_paquete` = ? ORDER BY H.`gch_orden`"
+    );
+    $consulta->bind_param('s', $gcp_id);
+    $consulta->execute();
+    return $consulta->get_result()->fetch_all(MYSQLI_ASSOC);
 }
 
 function guardarIndicadoresPaquete(mysqli $enlace_db, string $gcp_id, array $indicador_ids): void

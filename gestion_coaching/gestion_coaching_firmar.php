@@ -41,11 +41,23 @@
         $csrf_ok = isset($_POST['_csrf_token'], $_SESSION['_csrf_token'])
             && hash_equals($_SESSION['_csrf_token'], $_POST['_csrf_token']);
 
+        $firma_imagen = null;
+        $metodo_firma = validar_input($_POST['metodo_firma'] ?? 'checkbox');
+
         if (!$csrf_ok) {
             $respuesta_accion = "<script type='text/javascript'>alertify.warning('Solicitud inválida (CSRF). Recargue e intente de nuevo.', 0);</script>";
-        } elseif (!isset($_POST['acepto'])) {
-            $error_general = 'Debe marcar la casilla de aceptación antes de firmar.';
+        } elseif ($metodo_firma === 'dibujada' && (
+            !preg_match('/^data:image\/png;base64,([A-Za-z0-9+\/=]+)$/', (string) ($_POST['firma_imagen_data'] ?? ''), $m)
+            || strlen($m[1]) > 300000
+        )) {
+            $error_general = 'La firma dibujada no es válida. Intente firmar de nuevo.';
+        } elseif ($metodo_firma !== 'dibujada' && !isset($_POST['acepto'])) {
+            $error_general = 'Debe marcar la casilla de aceptación, o elegir "Firmar a mano" y dibujar su firma.';
         } else {
+            if ($metodo_firma === 'dibujada') {
+                $firma_imagen = $_POST['firma_imagen_data'];
+            }
+
             $respuestas_encuesta = [];
             if ($requiere_encuesta) {
                 foreach ($preguntas_encuesta as $p) {
@@ -73,7 +85,8 @@
                         $_SESSION['usu_id'],
                         'Agente',
                         $_SERVER['REMOTE_ADDR'] ?? '',
-                        $_SERVER['HTTP_USER_AGENT'] ?? null
+                        $_SERVER['HTTP_USER_AGENT'] ?? null,
+                        $firma_imagen
                     );
                     $respuesta_accion = "<script type='text/javascript'>alertify.success('Documento firmado correctamente.', 0); setTimeout(function(){ window.location='gestion_coaching_ver.php?reg=" . base64_encode($gcp_id) . "'; }, 1200);</script>";
                 } catch (Throwable $e) {
@@ -142,6 +155,14 @@
         .coaching_confirmacion label { font-size: 12px; color: #1A1A1A; margin: 0; cursor: pointer; line-height: 1.5; }
 
         .coaching_nota_legal { font-size: 10px; color: #6E6E6E; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 5px; background: #F2F2F2; border-radius: 5px; padding: 8px 10px; }
+
+        .coaching_tabs_firma { display: flex; border: 1px solid #F2F2F2; border-radius: 6px; overflow: hidden; }
+        .coaching_tab_firma {
+            flex: 1; background: #FFFFFF; border: 0; padding: 8px 6px; font-size: 12px; color: #6E6E6E;
+            cursor: pointer; border-right: 1px solid #F2F2F2;
+        }
+        .coaching_tab_firma:last-child { border-right: 0; }
+        .coaching_tab_firma.activa { background: #4CAF50; color: #FFFFFF; font-weight: bold; }
 
         .coaching_ficha_doc { font-size: 11px; color: #1A1A1A; margin-bottom: 14px; }
         .coaching_ficha_doc .fila { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #F2F2F2; }
@@ -230,17 +251,42 @@
                                     <div class="fila"><span class="etiqueta">Fecha</span><strong><?php echo date('d/m/Y'); ?></strong></div>
                                 </div>
 
-                                <div class="coaching_confirmacion <?php echo $error_general ? 'error' : ''; ?>">
-                                    <input type="checkbox" id="acepto" name="acepto" required>
-                                    <label for="acepto">
-                                        He leído y entendido el contenido de este documento de coaching. Confirmo mi
-                                        aceptación electrónica, con el mismo valor y efecto que mi firma manuscrita
-                                        para efectos de este proceso interno.
-                                        <?php if ($error_general): ?>
-                                            <div style="color:#FF0000; font-size:11px; margin-top:4px;"><?php echo validar_output($error_general); ?></div>
-                                        <?php endif; ?>
-                                    </label>
+                                <div class="coaching_tabs_firma mb-3">
+                                    <button type="button" class="coaching_tab_firma activa" data-metodo="checkbox" id="tab_checkbox">Aceptación con casilla</button>
+                                    <button type="button" class="coaching_tab_firma" data-metodo="dibujada" id="tab_dibujada">Firmar a mano</button>
                                 </div>
+                                <input type="hidden" name="metodo_firma" id="metodo_firma" value="checkbox">
+                                <input type="hidden" name="firma_imagen_data" id="firma_imagen_data" value="">
+
+                                <div id="panel_checkbox">
+                                    <div class="coaching_confirmacion <?php echo $error_general ? 'error' : ''; ?>">
+                                        <input type="checkbox" id="acepto" name="acepto">
+                                        <label for="acepto">
+                                            He leído y entendido el contenido de este documento de coaching. Confirmo mi
+                                            aceptación electrónica, con el mismo valor y efecto que mi firma manuscrita
+                                            para efectos de este proceso interno.
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div id="panel_dibujada" style="display:none;">
+                                    <p style="font-size:11px; color:#6E6E6E; margin-bottom:6px;">Dibuje su firma con el mouse o el dedo (pantalla táctil):</p>
+                                    <div style="border:1px solid #F2F2F2; border-radius:5px; background:#FFFFFF;">
+                                        <canvas id="canvas_firma" width="340" height="130" style="width:100%; height:130px; touch-action:none;"></canvas>
+                                    </div>
+                                    <div class="text-right mt-1">
+                                        <button type="button" id="btn_limpiar_firma" style="background:none; border:none; color:#6E6E6E; font-size:11px; cursor:pointer;">
+                                            <span class="fas fa-eraser"></span> Limpiar
+                                        </button>
+                                    </div>
+                                    <p style="font-size:11px; color:#6E6E6E;">
+                                        Al dibujar su firma, confirma el mismo texto de aceptación electrónica indicado arriba.
+                                    </p>
+                                </div>
+
+                                <?php if ($error_general): ?>
+                                    <div style="color:#FF0000; font-size:11px; margin-top:4px;"><?php echo validar_output($error_general); ?></div>
+                                <?php endif; ?>
 
                                 <div class="coaching_nota_legal">
                                     <span class="fas fa-shield-alt"></span>
@@ -258,11 +304,64 @@
             </div>
         </form>
 
+        <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
         <script>
         (function () {
+            // ---- Pestañas: elegir método de firma ----
+            var tabCheckbox = document.getElementById('tab_checkbox');
+            var tabDibujada = document.getElementById('tab_dibujada');
+            var panelCheckbox = document.getElementById('panel_checkbox');
+            var panelDibujada = document.getElementById('panel_dibujada');
+            var campoMetodo = document.getElementById('metodo_firma');
+            var campoImagenFirma = document.getElementById('firma_imagen_data');
+            var checkboxAcepto = document.getElementById('acepto');
+
+            var canvas = document.getElementById('canvas_firma');
+            var signaturePad = null;
+            function inicializarPad() {
+                if (!signaturePad && window.SignaturePad) {
+                    // Ajusta la resolución del canvas a su tamaño real en pantalla
+                    // (evita que la firma se vea borrosa en pantallas de alta densidad).
+                    var ratio = Math.max(window.devicePixelRatio || 1, 1);
+                    canvas.width = canvas.offsetWidth * ratio;
+                    canvas.height = canvas.offsetHeight * ratio;
+                    canvas.getContext('2d').scale(ratio, ratio);
+                    signaturePad = new SignaturePad(canvas, { backgroundColor: 'rgb(255,255,255)' });
+                }
+            }
+
+            function mostrarMetodo(metodo) {
+                campoMetodo.value = metodo;
+                tabCheckbox.classList.toggle('activa', metodo === 'checkbox');
+                tabDibujada.classList.toggle('activa', metodo === 'dibujada');
+                panelCheckbox.style.display = metodo === 'checkbox' ? 'block' : 'none';
+                panelDibujada.style.display = metodo === 'dibujada' ? 'block' : 'none';
+                if (metodo === 'dibujada') { inicializarPad(); }
+            }
+            tabCheckbox.addEventListener('click', function () { mostrarMetodo('checkbox'); });
+            tabDibujada.addEventListener('click', function () { mostrarMetodo('dibujada'); });
+
+            document.getElementById('btn_limpiar_firma').addEventListener('click', function () {
+                if (signaturePad) { signaturePad.clear(); }
+            });
+
+            // ---- Envío del formulario ----
             var form = document.getElementById('form_firmar');
             var boton = document.getElementById('btn_firmar');
             form.addEventListener('submit', function (e) {
+                if (campoMetodo.value === 'dibujada') {
+                    if (!signaturePad || signaturePad.isEmpty()) {
+                        alertify.warning('Dibuje su firma antes de continuar.', 0);
+                        e.preventDefault();
+                        return;
+                    }
+                    campoImagenFirma.value = signaturePad.toDataURL('image/png');
+                } else if (!checkboxAcepto.checked) {
+                    alertify.warning('Marque la casilla de aceptación, o cambie a "Firmar a mano".', 0);
+                    e.preventDefault();
+                    return;
+                }
+
                 if (!confirm('¿Confirma que quiere firmar este documento? Esta acción no se puede deshacer.')) {
                     e.preventDefault();
                     return;
