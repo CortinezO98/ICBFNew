@@ -4,10 +4,6 @@
     require_once("../config/validaciones_seguridad.php");
     require_once("../config/conexion_db.php");
     require_once("lib/coaching_seguridad.php");
-    error_reporting(E_ALL);
-    ini_set('display_errors', '1');
-
-    $enlace_db->set_charset('utf8mb4');
 
     $titulo_header = "Coaching | Reporte";
 
@@ -56,31 +52,17 @@
         "SELECT P.`gcp_id`, P.`gcp_origen_tipo`, T.`gct_nombre`, E.`gce_nombre`, E.`gce_codigo`,
                 TA.`usu_nombres_apellidos` AS agente_nombre, TS.`usu_nombres_apellidos` AS supervisor_nombre,
                 P.`gcp_registro_fecha`, P.`gcp_fecha_limite`, P.`gcp_fecha_cierre`, P.`gcp_prioridad`,
-                (SELECT GROUP_CONCAT(I.`gci_nombre` ORDER BY I.`gci_nombre` SEPARATOR '; ')
+                (SELECT GROUP_CONCAT(I.`gci_nombre` SEPARATOR '; ')
                  FROM `tb_gestion_coaching_paquete_indicador` AS PI
-                 INNER JOIN `tb_gestion_coaching_indicador` AS I
-                    ON PI.`gcpi_indicador_id` = I.`gci_id`
-                 WHERE CONVERT(PI.`gcpi_paquete` USING utf8mb4) COLLATE utf8mb4_unicode_ci
-                     = CONVERT(P.`gcp_id` USING utf8mb4) COLLATE utf8mb4_unicode_ci) AS indicadores_multiples,
-                A.`gca_id` AS acompanamiento_id,
-                A.`gca_estado` AS acompanamiento_estado,
-                ESC.`gces_destinatario_nombre`,
-                ESC.`gces_asunto_correo` AS escalamiento_asunto
+                 INNER JOIN `tb_gestion_coaching_indicador` AS I ON PI.`gcpi_indicador_id` = I.`gci_id`
+                 WHERE PI.`gcpi_paquete` = P.`gcp_id`) AS indicadores_multiples,
+                ESC.`gcpe_destinatario_nombre`, ESC.`gcpe_asunto`
          FROM `tb_gestion_coaching_paquete` AS P
          LEFT JOIN `tb_gestion_coaching_estado` AS E ON P.`gcp_estado_id` = E.`gce_id`
          LEFT JOIN `tb_gestion_coaching_tipo` AS T ON P.`gcp_tipo_id` = T.`gct_id`
-         LEFT JOIN `tb_administrador_usuario` AS TA
-            ON CONVERT(P.`gcp_agente_id` USING utf8mb4) COLLATE utf8mb4_unicode_ci
-             = CONVERT(TA.`usu_id` USING utf8mb4) COLLATE utf8mb4_unicode_ci
-         LEFT JOIN `tb_administrador_usuario` AS TS
-            ON CONVERT(P.`gcp_supervisor_id` USING utf8mb4) COLLATE utf8mb4_unicode_ci
-             = CONVERT(TS.`usu_id` USING utf8mb4) COLLATE utf8mb4_unicode_ci
-         LEFT JOIN `tb_gestion_coaching_acompanamiento` AS A
-            ON CONVERT(A.`gca_paquete_id` USING utf8mb4) COLLATE utf8mb4_unicode_ci
-             = CONVERT(P.`gcp_id` USING utf8mb4) COLLATE utf8mb4_unicode_ci
-           AND A.`gca_activo` = 1
-         LEFT JOIN `tb_gestion_coaching_escalamiento` AS ESC
-            ON ESC.`gces_acompanamiento_id` = A.`gca_id`
+         LEFT JOIN `tb_administrador_usuario` AS TA ON P.`gcp_agente_id` = TA.`usu_id`
+         LEFT JOIN `tb_administrador_usuario` AS TS ON P.`gcp_supervisor_id` = TS.`usu_id`
+         LEFT JOIN `tb_gestion_coaching_paquete_escalamiento` AS ESC ON P.`gcp_id` = ESC.`gcpe_paquete`
          WHERE P.`gcp_activo` = 1 {$filtro_alcance_sql} {$condiciones}
          ORDER BY P.`gcp_registro_fecha` DESC
          LIMIT 500";

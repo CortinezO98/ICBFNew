@@ -855,15 +855,15 @@ function listarIndicadoresPaquete(mysqli $enlace_db, string $gcp_id): array
 function guardarEscalamiento(mysqli $enlace_db, string $gcp_id, array $datos, string $usu_id): void
 {
     $insertar = $enlace_db->prepare(
-        "INSERT INTO `tb_gestion_coaching_escalamiento`
-            (`gcesc_paquete`, `gcesc_asunto`, `gcesc_fecha_hora_envio`, `gcesc_destinatario_nombre`, `gcesc_destinatario_correo`, `gcesc_observaciones`, `gcesc_registro_usuario`)
+        "INSERT INTO `tb_gestion_coaching_paquete_escalamiento`
+            (`gcpe_paquete`, `gcpe_asunto`, `gcpe_fecha_hora_envio`, `gcpe_destinatario_nombre`, `gcpe_destinatario_correo`, `gcpe_observaciones`, `gcpe_registro_usuario`)
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
-            `gcesc_asunto` = VALUES(`gcesc_asunto`),
-            `gcesc_fecha_hora_envio` = VALUES(`gcesc_fecha_hora_envio`),
-            `gcesc_destinatario_nombre` = VALUES(`gcesc_destinatario_nombre`),
-            `gcesc_destinatario_correo` = VALUES(`gcesc_destinatario_correo`),
-            `gcesc_observaciones` = VALUES(`gcesc_observaciones`)"
+            `gcpe_asunto` = VALUES(`gcpe_asunto`),
+            `gcpe_fecha_hora_envio` = VALUES(`gcpe_fecha_hora_envio`),
+            `gcpe_destinatario_nombre` = VALUES(`gcpe_destinatario_nombre`),
+            `gcpe_destinatario_correo` = VALUES(`gcpe_destinatario_correo`),
+            `gcpe_observaciones` = VALUES(`gcpe_observaciones`)"
     );
     $insertar->bind_param(
         'sssssss',
@@ -882,7 +882,7 @@ function guardarEscalamiento(mysqli $enlace_db, string $gcp_id, array $datos, st
 
 function obtenerEscalamiento(mysqli $enlace_db, string $gcp_id): ?array
 {
-    $consulta = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_escalamiento` WHERE `gcesc_paquete` = ? LIMIT 1");
+    $consulta = $enlace_db->prepare("SELECT * FROM `tb_gestion_coaching_paquete_escalamiento` WHERE `gcpe_paquete` = ? LIMIT 1");
     $consulta->bind_param('s', $gcp_id);
     $consulta->execute();
     $fila = $consulta->get_result()->fetch_assoc();
@@ -902,24 +902,39 @@ function obtenerEscalamiento(mysqli $enlace_db, string $gcp_id): ?array
  *                       'prioridad','fecha_limite'(nullable Y-m-d),'contexto'(nullable)]
  * @return string gcp_id
  */
-function crearPaqueteGlobal(mysqli $enlace_db, array $datos, string $supervisor_id): string
+function crearPaqueteGlobal(mysqli $enlace_db, array $datos, string $usu_id_actor, string $perfil_actor = 'Supervisor'): string
 {
     $enlace_db->begin_transaction();
     try {
-        // Autorización por recurso: el agente elegido debe reportar
-        // realmente a este supervisor. Nunca se confía en el <select> del
-        // formulario sin revalidar en servidor (defensa contra IDOR /
-        // manipulación de parámetros).
+        // Autorización por recurso: el agente elegido debe existir y estar
+        // activo. Si quien crea es Supervisor, además debe ser realmente
+        // su agente (nunca se confía en el <select> del formulario sin
+        // revalidar en servidor — defensa contra IDOR). Administrador y
+        // Gestor pueden crear para cualquier agente activo, pero el
+        // paquete SIEMPRE queda asignado al supervisor REAL del agente
+        // (no al admin), para que el resto del sistema (bandeja del
+        // supervisor, reportes, alcance) siga funcionando correctamente.
         $consulta_agente = $enlace_db->prepare(
-            "SELECT `usu_supervisor` FROM `tb_administrador_usuario` WHERE `usu_id` = ? LIMIT 1"
+            "SELECT `usu_supervisor` FROM `tb_administrador_usuario` WHERE `usu_id` = ? AND `usu_estado` = 'Activo' LIMIT 1"
         );
         $consulta_agente->bind_param('s', $datos['agente_id']);
         $consulta_agente->execute();
         $agente = $consulta_agente->get_result()->fetch_assoc();
 
-        if (!$agente || $agente['usu_supervisor'] !== $supervisor_id) {
+        if (!$agente) {
+            throw new RuntimeException('El agente seleccionado no existe o no está activo.');
+        }
+
+        $es_admin_o_gestor = in_array($perfil_actor, ['Administrador', 'Gestor'], true);
+        if (!$es_admin_o_gestor && $agente['usu_supervisor'] !== $usu_id_actor) {
             throw new RuntimeException('El agente seleccionado no pertenece a su equipo.');
         }
+
+        // El paquete queda asignado al supervisor real del agente. Si un
+        // agente no tiene supervisor asignado (usu_supervisor vacío) y
+        // quien crea es Admin/Gestor, el propio actor queda como supervisor
+        // — mejor que dejarlo sin dueño.
+        $supervisor_id = ($agente['usu_supervisor'] ?? '') !== '' ? $agente['usu_supervisor'] : $usu_id_actor;
 
         $gcp_id = generarConsecutivoPaquete($enlace_db);
         $estado_id = obtenerEstadoIdPorCodigo($enlace_db, 'ASIGNADO');
@@ -955,14 +970,14 @@ function crearPaqueteGlobal(mysqli $enlace_db, array $datos, string $supervisor_
             $segmento_final,
             $datos['prioridad'],
             $fecha_limite,
-            $supervisor_id
+            $usu_id_actor
         );
         if (!$insertar->execute()) {
             throw new RuntimeException('No fue posible crear el paquete: ' . $enlace_db->error);
         }
 
         insertarHistorial($enlace_db, $gcp_id, null, $estado_id, 'CREAR_MANUAL',
-            $datos['contexto'] ?? null, $supervisor_id, null);
+            $datos['contexto'] ?? null, $usu_id_actor, null);
 
         $enlace_db->commit();
         return $gcp_id;

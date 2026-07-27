@@ -273,10 +273,10 @@ function construirHtmlActaCompromiso(string $gcp_id, array $paquete, ?array $ret
         $html .= '
         <h4 style="background:#175E83; color:#FFFFFF; padding:5px 8px;">DETALLE DEL ESCALAMIENTO</h4>
         <table border="1" cellpadding="6" cellspacing="0" style="width:100%; border-collapse:collapse; margin-bottom:15px;">
-            <tr><td style="width:30%;"><strong>Asunto</strong></td><td>' . htmlspecialchars($escalamiento['gcesc_asunto']) . '</td></tr>
-            <tr><td><strong>Fecha y hora de envío</strong></td><td>' . date('d/m/Y H:i', strtotime($escalamiento['gcesc_fecha_hora_envio'])) . '</td></tr>
-            <tr><td><strong>Remitido a</strong></td><td>' . htmlspecialchars($escalamiento['gcesc_destinatario_nombre']) . ' (' . htmlspecialchars($escalamiento['gcesc_destinatario_correo']) . ')</td></tr>
-            <tr><td><strong>Observaciones</strong></td><td>' . nl2br(htmlspecialchars($escalamiento['gcesc_observaciones'] ?? '')) . '</td></tr>
+            <tr><td style="width:30%;"><strong>Asunto</strong></td><td>' . htmlspecialchars($escalamiento['gcpe_asunto']) . '</td></tr>
+            <tr><td><strong>Fecha y hora de envío</strong></td><td>' . date('d/m/Y H:i', strtotime($escalamiento['gcpe_fecha_hora_envio'])) . '</td></tr>
+            <tr><td><strong>Remitido a</strong></td><td>' . htmlspecialchars($escalamiento['gcpe_destinatario_nombre']) . ' (' . htmlspecialchars($escalamiento['gcpe_destinatario_correo']) . ')</td></tr>
+            <tr><td><strong>Observaciones</strong></td><td>' . nl2br(htmlspecialchars($escalamiento['gcpe_observaciones'] ?? '')) . '</td></tr>
         </table>';
     }
 

@@ -77,7 +77,7 @@
                         'fecha_limite' => $fecha_limite !== '' ? $fecha_limite : null,
                         'contexto'     => $contexto !== '' ? $contexto : null,
                         'segmento'     => $segmento !== '' ? $segmento : null,
-                    ], $_SESSION['usu_id']);
+                    ], $_SESSION['usu_id'], $perfil_coaching);
 
                     guardarIndicadoresPaquete($enlace_db, $gcp_id, $indicador_ids);
 
@@ -97,7 +97,17 @@
         unset($_SESSION['registro_creado']);
     }
 
-    $agentes = listarAgentesDeSupervisor($enlace_db, $_SESSION['usu_id']);
+    if (in_array($perfil_coaching, ['Gestor', 'Administrador'], true)) {
+        // Alcance global auditado: el Administrador/Gestor no necesariamente
+        // es "usu_supervisor" de nadie en la columna real, pero sí debe
+        // poder crear paquetes para cualquier agente activo.
+        $agentes = $enlace_db->query(
+            "SELECT `usu_id`, `usu_nombres_apellidos` FROM `tb_administrador_usuario`
+             WHERE `usu_estado` = 'Activo' ORDER BY `usu_nombres_apellidos`"
+        )->fetch_all(MYSQLI_ASSOC);
+    } else {
+        $agentes = listarAgentesDeSupervisor($enlace_db, $_SESSION['usu_id']);
+    }
     $tipos = listarTiposActivos($enlace_db);
     $indicadores = listarIndicadoresActivos($enlace_db);
     $indicadores_por_categoria = [];
@@ -168,9 +178,20 @@
         }
 
         .coaching_indicador_caja { max-height: 260px; overflow-y: auto; border: 1px solid #F2F2F2; border-radius: 5px; padding: 10px; }
-        .coaching_indicador_categoria { font-weight: bold; color: #4CAF50; font-size: 11px; margin-top: 10px; text-transform: uppercase; }
+        .coaching_indicador_categoria { font-weight: bold; color: #1A1A1A; font-size: 11px; margin-top: 10px; text-transform: uppercase; }
         .coaching_indicador_categoria:first-child { margin-top: 0; }
         .coaching_indicador_item { font-size: 12px; padding: 3px 0; }
+        /* Reset agresivo: el style.css real del sitio pinta los checkboxes
+           nativos rotos (barra en vez de casilla). "all: revert" borra la
+           herencia global antes de aplicar el tamaño fijo. */
+        .coaching_indicador_check {
+            all: revert !important;
+            -webkit-appearance: checkbox !important; appearance: checkbox !important;
+            opacity: 1 !important; visibility: visible !important; position: static !important;
+            width: 15px !important; height: 15px !important; min-width: 15px !important;
+            margin: 0 6px 0 0 !important; vertical-align: middle; cursor: pointer;
+        }
+        .coaching_indicador_check::before, .coaching_indicador_check::after { content: none !important; display: none !important; }
         .coaching_indicador_contador { font-size: 11px; color: #6E6E6E; margin-top: 6px; }
 
         .coaching_bloque_escalamiento { display: none; background: #FFF8E6; border: 1px solid #F39C12; border-radius: 5px; padding: 12px; margin-top: 14px; }
@@ -194,12 +215,20 @@
         <?php if (count($agentes) === 0): ?>
             <div class="coaching_empty">
                 <div class="coaching_empty_icono"><span class="fas fa-user-friends"></span></div>
-                <h5>Todavía no tiene agentes asignados</h5>
-                <p class="mb-0">
-                    Ningún usuario tiene su cuenta como supervisor (<code>usu_supervisor</code>) todavía,
-                    por lo que no hay a quién asignarle un paquete de coaching.
-                    Verifique la asignación desde <strong>Administrador → Usuarios</strong>.
-                </p>
+                <?php if (in_array($perfil_coaching, ['Gestor', 'Administrador'], true)): ?>
+                    <h5>No hay agentes activos en el sistema</h5>
+                    <p class="mb-0">
+                        No se encontró ningún usuario con estado "Activo" para asignarle un paquete de coaching.
+                        Verifique el estado de los usuarios desde <strong>Administrador → Usuarios</strong>.
+                    </p>
+                <?php else: ?>
+                    <h5>Todavía no tiene agentes asignados</h5>
+                    <p class="mb-0">
+                        Ningún usuario tiene su cuenta como supervisor (<code>usu_supervisor</code>) todavía,
+                        por lo que no hay a quién asignarle un paquete de coaching.
+                        Verifique la asignación desde <strong>Administrador → Usuarios</strong>.
+                    </p>
+                <?php endif; ?>
                 <div class="coaching_empty_acciones">
                     <?php $tiene_acceso_admin = isset($_SESSION['modulos_acceso_permisos']['Administrador']) && $_SESSION['modulos_acceso_permisos']['Administrador'] !== ''; ?>
                     <?php if ($tiene_acceso_admin): ?>

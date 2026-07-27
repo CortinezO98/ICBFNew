@@ -8,8 +8,6 @@
     require_once("lib/coaching_datos.php");
 
     $titulo_header = "Coaching | Detalle";
-    error_reporting(E_ALL);
-    ini_set('display_errors', '1');
 
     $perfil_coaching = coachingPerfilUsuarioActual();
     if ($perfil_coaching === null) {
@@ -417,25 +415,25 @@
                         <div class="coaching_meta">
                             <div>
                                 <div class="etiqueta">Asunto del correo</div>
-                                <div class="valor"><?php echo validar_output($escalamiento['gcesc_asunto']); ?></div>
+                                <div class="valor"><?php echo validar_output($escalamiento['gcpe_asunto']); ?></div>
                             </div>
                             <div>
                                 <div class="etiqueta">Fecha y hora de envío</div>
-                                <div class="valor"><?php echo date('d/m/Y H:i', strtotime($escalamiento['gcesc_fecha_hora_envio'])); ?></div>
+                                <div class="valor"><?php echo date('d/m/Y H:i', strtotime($escalamiento['gcpe_fecha_hora_envio'])); ?></div>
                             </div>
                             <div>
                                 <div class="etiqueta">Remitido a</div>
-                                <div class="valor"><?php echo validar_output($escalamiento['gcesc_destinatario_nombre']); ?></div>
+                                <div class="valor"><?php echo validar_output($escalamiento['gcpe_destinatario_nombre']); ?></div>
                             </div>
                             <div>
                                 <div class="etiqueta">Correo destinatario</div>
-                                <div class="valor"><?php echo validar_output($escalamiento['gcesc_destinatario_correo']); ?></div>
+                                <div class="valor"><?php echo validar_output($escalamiento['gcpe_destinatario_correo']); ?></div>
                             </div>
                         </div>
-                        <?php if (!empty($escalamiento['gcesc_observaciones'])): ?>
+                        <?php if (!empty($escalamiento['gcpe_observaciones'])): ?>
                             <div class="mt-2">
                                 <div class="etiqueta">Observaciones</div>
-                                <div class="valor"><?php echo nl2br(validar_output($escalamiento['gcesc_observaciones'])); ?></div>
+                                <div class="valor"><?php echo nl2br(validar_output($escalamiento['gcpe_observaciones'])); ?></div>
                             </div>
                         <?php endif; ?>
                     </div>
