@@ -68,10 +68,14 @@
     $consulta_compromisos->execute();
     $compromisos = $consulta_compromisos->get_result()->fetch_all(MYSQLI_ASSOC);
 
-    // Indicadores múltiples, escalamiento y encuesta (enfoque evolutivo)
+    // Indicadores múltiples, escalamiento, encuesta y soportes (enfoque evolutivo)
     $indicadores_paquete = listarIndicadoresPaquete($enlace_db, $gcp_id);
     $escalamiento = obtenerEscalamiento($enlace_db, $gcp_id);
     $encuesta_percepcion = obtenerEncuestaPercepcion($enlace_db, $gcp_id);
+    if (!function_exists('listarSoportesCoaching')) {
+        require_once("lib/coaching_complementos.php");
+    }
+    $soportes_paquete = listarSoportesCoaching($enlace_db, $gcp_id);
 
     // Historial (timeline) - inmutable, orden cronológico
     $consulta_historial = $enlace_db->prepare(
@@ -413,6 +417,32 @@
                     </div>
                 </div>
                 <?php endif; ?>
+
+                <div class="cuadro_dash mb-3">
+                    <div class="cuadro_dash_titulo p-2" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><span class="fas fa-paperclip"></span> Soportes</span>
+                        <a href="gestion_coaching_soporte_cargar.php?reg=<?php echo base64_encode($gcp_id); ?>" style="color:#fff; font-size:11px;" title="Adjuntar soporte">
+                            <span class="fas fa-plus-circle"></span> Adjuntar
+                        </a>
+                    </div>
+                    <div class="p-3">
+                        <?php if (count($soportes_paquete) === 0): ?>
+                            <p class="coaching_empty_mini mb-0">No hay soportes adjuntos todavía.</p>
+                        <?php else: ?>
+                            <?php foreach ($soportes_paquete as $sp): ?>
+                                <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid #F2F2F2; font-size:12px;">
+                                    <div>
+                                        <span class="fas fa-file"></span> <?php echo validar_output($sp['gcsp_nombre_original']); ?>
+                                        <span style="color:#6E6E6E; font-size:10px;">(<?php echo validar_output($sp['gcsp_tipo_documental'] ?? 'Evidencia'); ?> · <?php echo date('d/m/Y', strtotime($sp['gcsp_registro_fecha'])); ?>)</span>
+                                    </div>
+                                    <a href="gestion_coaching_soporte_descargar.php?id=<?php echo (int) $sp['gcsp_id']; ?>" class="btn-corp" style="width:24px; height:24px; padding:0; border-radius:4px; display:inline-flex; align-items:center; justify-content:center;" title="Descargar">
+                                        <span class="fas fa-download" style="font-size:11px;"></span>
+                                    </a>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
 
                 <div class="cuadro_dash mb-3">
                     <div class="cuadro_dash_titulo p-2"><span class="fas fa-handshake"></span> Compromisos</div>
