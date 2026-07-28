@@ -92,10 +92,22 @@
 
     // Query string para reusar los filtros actuales en el link de Excel/estadísticas
     $query_filtros = http_build_query(['desde' => $fecha_desde, 'hasta' => $fecha_hasta, 'estado' => $filtro_estado, 'tipo' => $filtro_tipo, 'origen' => $filtro_origen]);
+
+    // KPIs simples sobre el resultado ya filtrado (sin consultas extra)
+    $kpi_total = count($registros);
+    $kpi_cerrados = 0;
+    $kpi_vencidos = 0;
+    foreach ($registros as $r) {
+        if (in_array($r['gce_codigo'], ['CERRADO', 'RECHAZADO'], true)) { $kpi_cerrados++; }
+        if ($r['gcp_fecha_limite'] && !in_array($r['gce_codigo'], ['CERRADO', 'RECHAZADO', 'ANULADO'], true) && strtotime($r['gcp_fecha_limite']) < strtotime(date('Y-m-d'))) { $kpi_vencidos++; }
+    }
+    $kpi_pendientes = $kpi_total - $kpi_cerrados;
+    $kpi_pct_cerrados = $kpi_total > 0 ? round(($kpi_cerrados / $kpi_total) * 100) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="ES">
 <head>
+    <meta charset="UTF-8">
     <?php include("../config/configuracion_estilos.php"); ?>
     <style>
         .coaching_breadcrumb { font-size: 11px; color: #6E6E6E; margin-bottom: 10px; }
@@ -107,11 +119,22 @@
         .coaching_estado_morado  { color: #6C3483; border: solid 1px #6C3483; background-color: rgba(108, 52, 131, 0.15); }
         .coaching_estado_rojo    { color: #FF0000; border: solid 1px #FF0000; background-color: rgba(255, 0, 0, 0.15); }
         .coaching_estado_gris    { color: #6E6E6E; border: solid 1px #6E6E6E; background-color: rgba(110, 110, 110, 0.15); }
-        .coaching_filtros { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-bottom: 15px; }
+        .coaching_filtros { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
         .coaching_filtros label { font-size: 11px; font-weight: bold; color: #1A1A1A; display: block; margin-bottom: 3px; }
         .coaching_filtros select, .coaching_filtros input { font-size: 12px; }
+        .coaching_filtros_caja { background: #FFFFFF; border: 1px solid #F2F2F2; border-radius: 8px; padding: 15px; margin-bottom: 18px; }
         .coaching_tabla td.col-centro, .coaching_tabla th.col-centro { text-align: center; }
         .coaching_tabla td.col-izq, .coaching_tabla th.col-izq { text-align: left; }
+        .coaching_tabla tbody tr:hover { background: #F1F8F2; }
+
+        .coaching_kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+        .coaching_kpi { background: #FFFFFF; border: 1px solid #F2F2F2; border-left: 4px solid #4CAF50; border-radius: 8px; padding: 14px 16px; }
+        .coaching_kpi .valor { font-size: 24px; font-weight: bold; color: #1A1A1A; line-height: 1; }
+        .coaching_kpi .etiqueta { font-size: 11px; color: #6E6E6E; margin-top: 5px; }
+        .coaching_kpi.borde_verde   { border-left-color: #00BF6F; }
+        .coaching_kpi.borde_naranja { border-left-color: #F39C12; }
+        .coaching_kpi.borde_azul    { border-left-color: #175E83; }
+        .coaching_kpi.borde_rojo    { border-left-color: #FF0000; }
     </style>
 </head>
 <body onresize="tabla_fixed();" onload="tabla_fixed();">
@@ -138,6 +161,26 @@
             </div>
         </div>
 
+        <div class="coaching_kpis">
+            <div class="coaching_kpi">
+                <div class="valor"><?php echo $kpi_total; ?></div>
+                <div class="etiqueta">Total en el filtro</div>
+            </div>
+            <div class="coaching_kpi borde_naranja">
+                <div class="valor"><?php echo $kpi_pendientes; ?></div>
+                <div class="etiqueta">Pendientes / en curso</div>
+            </div>
+            <div class="coaching_kpi borde_verde">
+                <div class="valor"><?php echo $kpi_cerrados; ?> <span style="font-size:13px; color:#6E6E6E;">(<?php echo $kpi_pct_cerrados; ?>%)</span></div>
+                <div class="etiqueta">Cerrados</div>
+            </div>
+            <div class="coaching_kpi borde_rojo">
+                <div class="valor"><?php echo $kpi_vencidos; ?></div>
+                <div class="etiqueta">Vencidos sin cerrar</div>
+            </div>
+        </div>
+
+        <div class="coaching_filtros_caja">
         <form method="GET" action="" class="coaching_filtros">
             <div>
                 <label for="desde">Desde</label>
@@ -179,6 +222,7 @@
                 </button>
             </div>
         </form>
+        </div>
 
         <p style="font-size:11px; color:#6E6E6E;">
             <?php echo count($registros); ?> resultado(s) <?php echo count($registros) === 500 ? '(máximo 500, refine el filtro para ver todos)' : ''; ?>
