@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/coaching_datos.php';
 require_once __DIR__ . '/coaching_reglas.php';
 require_once __DIR__ . '/coaching_transiciones.php';
+require_once __DIR__ . '/coaching_documentos.php';
 
 /**
  * gestion_coaching/lib/coaching_firma.php
@@ -97,6 +98,42 @@ function firmarDocumentoCoaching(
             registrarErrorCoaching($enlace_db, $gcp_id, "Intento de firma con hash no coincidente en documento gcd_id={$gcd_id}.");
         }
         throw $e;
+    }
+
+    // Regenera el PDF con la firma real ya impresa (nombre, documento,
+    // fecha/hora, y la imagen si fue dibujada) — antes de este punto, el
+    // documento existente se generó ANTES de firmar y por eso mostraba
+    // las líneas de "Firma: ____" en blanco para siempre. Protegido en su
+    // propio try/catch: si la regeneración fallara por cualquier motivo,
+    // la firma YA quedó registrada correctamente arriba — nunca se pierde
+    // por un problema en este paso secundario.
+    try {
+        $consulta_nombre = $enlace_db->prepare("SELECT `usu_nombres_apellidos` FROM `tb_administrador_usuario` WHERE `usu_id` = ? LIMIT 1");
+        $consulta_nombre->bind_param('s', $usu_id);
+        $consulta_nombre->execute();
+        $firmante = $consulta_nombre->get_result()->fetch_assoc();
+
+        $firma_completa = obtenerFirmaPorDocumento($enlace_db, $gcd_id);
+        if ($firma_completa === null) {
+            throw new RuntimeException('No fue posible releer la firma recién registrada.');
+        }
+        $firma_completa['firmante_nombre'] = $firmante['usu_nombres_apellidos'] ?? '';
+
+        $paquete = obtenerPaqueteConDetalle($enlace_db, $gcp_id);
+        $retro = obtenerRetroalimentacion($enlace_db, $gcp_id);
+        $compromisos = listarCompromisosPorPaquete($enlace_db, $gcp_id);
+        $respuesta_agente = obtenerRespuestaAgente($enlace_db, $gcp_id);
+        $indicadores_adicionales = listarIndicadoresPaquete($enlace_db, $gcp_id);
+        $escalamiento = obtenerEscalamiento($enlace_db, $gcp_id);
+
+        $html_firmado = construirHtmlDocumentoPorTipo(
+            $gcp_id, $paquete, $retro, $compromisos, $respuesta_agente,
+            $indicadores_adicionales, $escalamiento, $firma_completa
+        );
+        $tipo_documento = $documento['gcd_tipo_documento'] ?? ($paquete['gct_codigo'] === 'ACTA_COMPROMISO' ? 'Acta_Compromiso' : 'Retroalimentacion');
+        generarDocumentoCoaching($enlace_db, $gcp_id, $tipo_documento, $html_firmado, 'SISTEMA');
+    } catch (Throwable $e) {
+        registrarErrorCoaching($enlace_db, $gcp_id, 'No fue posible regenerar el PDF con la firma incluida: ' . $e->getMessage());
     }
 
     // Bloque 2: transición de estado, en su propia transacción independiente.

@@ -154,7 +154,7 @@ function obtenerSupervisionActualAgente(mysqli $enlace_db, string $usu_id_agente
  *
  * @return string gcp_id del paquete creado
  */
-function crearPaqueteAutomatico(mysqli $enlace_db, array $snapshot, ?string $paquete_anterior = null): string
+function crearPaqueteAutomatico(mysqli $enlace_db, array $snapshot, ?string $paquete_anterior = null, ?string $fecha_limite_forzada = null): string
 {
     $enlace_db->begin_transaction();
     try {
@@ -173,6 +173,12 @@ function crearPaqueteAutomatico(mysqli $enlace_db, array $snapshot, ?string $paq
 
         $estado_id = obtenerEstadoIdPorCodigo($enlace_db, 'ASIGNADO');
         $tipo_id   = obtenerTipoIdPorCodigo($enlace_db, 'RETROALIMENTACION');
+        // Si quien genera eligió una fecha específica (pantalla de "generar
+        // desde monitoreo"), se respeta esa. Si no, se calcula el default
+        // de siempre (+5 días calendario).
+        $fecha_limite = $fecha_limite_forzada !== null && $fecha_limite_forzada !== ''
+            ? $fecha_limite_forzada
+            : date('Y-m-d', strtotime('+' . COACHING_DIAS_LIMITE_AUTOMATICO . ' days'));
 
         // Campaña actual del agente (sectorización por empresa) — el
         // segmento en origen automático viene directo del monitoreo que
@@ -187,11 +193,11 @@ function crearPaqueteAutomatico(mysqli $enlace_db, array $snapshot, ?string $paq
             "INSERT INTO `tb_gestion_coaching_paquete`
                 (`gcp_id`, `gcp_origen_tipo`, `gcp_monitoreo_id`, `gcp_paquete_anterior`, `gcp_tipo_id`,
                  `gcp_agente_id`, `gcp_supervisor_id`, `gcp_lider_calidad_id`, `gcp_analista_calidad_id`,
-                 `gcp_estado_id`, `gcp_campania_id`, `gcp_segmento`, `gcp_fecha_asignacion`, `gcp_creado_por`)
-             VALUES (?, 'monitoreo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'SISTEMA')"
+                 `gcp_estado_id`, `gcp_campania_id`, `gcp_segmento`, `gcp_fecha_asignacion`, `gcp_fecha_limite`, `gcp_creado_por`)
+             VALUES (?, 'monitoreo', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'SISTEMA')"
         );
         $insertar_paquete->bind_param(
-            'sssissssiis',
+            'sssissssiiss',
             $gcp_id,
             $snapshot['monitoreo_id'],
             $paquete_anterior,
@@ -202,7 +208,8 @@ function crearPaqueteAutomatico(mysqli $enlace_db, array $snapshot, ?string $paq
             $snapshot['analista_id'],
             $estado_id,
             $campania_id,
-            $snapshot['segmento']
+            $snapshot['segmento'],
+            $fecha_limite
         );
         if (!$insertar_paquete->execute()) {
             // La UNIQUE (gcp_origen_tipo, gcp_monitoreo_id, gcp_activo) es

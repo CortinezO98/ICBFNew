@@ -4,6 +4,7 @@
 
 	require_once("../config/validaciones_seguridad.php");
     require_once("../config/conexion_db.php");
+    require_once("../gestion_coaching/lib/coaching_disparador.php");
 // error_reporting(E_ALL);
 // ini_set('display_errors', '1');
     /*DEFINICIÓN DE VARIABLES*/
@@ -281,6 +282,20 @@
                                             <a href="gestion_calidad_monitoreo_editar_soportes.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>&reg=<?php echo base64_encode($resultado_registros[$i][0]); ?>&bandeja=<?php echo base64_encode($bandeja); ?>" class="btn btn-success btn-sm btn-width mb-1" title="Editar Soportes"><span class="fas fa-paperclip"></span></a>
                                         <?php endif; ?>
                                         <a href="#" onClick="open_modal_monitoreo('<?php echo base64_encode($resultado_registros[$i][0]); ?>');" class="btn btn-secondary btn-sm btn-width mb-1" title="Detalle Monitoreo"><span class="fas fa-file-alt"></span></a>
+                                        <?php
+                                            $coaching_mostrar_boton = false;
+                                            if ($perfil_modulo != 'Cliente' && (float) $resultado_registros[$i][20] < 90) {
+                                                try {
+                                                    $coaching_mostrar_boton = coachingMonitoreoElegibleParaGenerar($enlace_db, $resultado_registros[$i][0]);
+                                                } catch (Throwable $e) {
+                                                    $coaching_mostrar_boton = false;
+                                                    error_log('[COACHING BOTON] Fallo en monitoreo ' . $resultado_registros[$i][0] . ': ' . $e->getMessage());
+                                                }
+                                            }
+                                        ?>
+                                        <?php if ($coaching_mostrar_boton): ?>
+                                            <a href="../gestion_coaching/gestion_coaching_generar_desde_monitoreo.php?monitoreo=<?php echo urlencode($resultado_registros[$i][0]); ?>" class="btn btn-sm btn-width mb-1" style="background-color:#4CAF50; color:#fff; border:none;" title="Generar Coaching"><span class="fas fa-graduation-cap"></span></a>
+                                        <?php endif; ?>
                                         <?php if($perfil_modulo=="Administrador"): ?>
                                             <a href="gestion_calidad_monitoreo_eliminar.php?pagina=<?php echo $pagina; ?>&id=<?php echo $filtro_permanente; ?>&reg=<?php echo base64_encode($resultado_registros[$i][0]); ?>&bandeja=<?php echo base64_encode($bandeja); ?>" class="btn btn-danger btn-sm btn-width mb-1" title="Eliminar"><span class="fas fa-trash-alt"></span></a>
                                         <?php endif; ?>
@@ -417,3 +432,4 @@
     </script>
 </body>
 </html>
+

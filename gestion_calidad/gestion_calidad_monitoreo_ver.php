@@ -150,6 +150,28 @@
                         <th class="align-middle py-0 font-size-11 text-left" style="min-width: 110px;">Nota General</th>
                         <td class="align-middle py-0 font-size-11"><?php echo $resultado_registros_monitoreo[0][21]; ?>%</td>
                     </tr>
+                    <?php
+                        // Botón "Generar Coaching" — solo si la nota es < 90, el
+                        // perfil no es Cliente, y no existe ya un paquete para
+                        // este monitoreo. La pantalla de destino vuelve a validar
+                        // todo esto por su cuenta (nunca confía solo en este if).
+                        if ($perfil_modulo != 'Cliente' && (float) $resultado_registros_monitoreo[0][21] < 90):
+                            require_once("../gestion_coaching/lib/coaching_disparador.php");
+                            $coaching_elegible = coachingMonitoreoElegibleParaGenerar($enlace_db, $id_registro);
+                    ?>
+                    <tr>
+                        <th class="align-middle py-0 font-size-11 text-left" style="min-width: 110px;">Coaching</th>
+                        <td class="align-middle py-0 font-size-11">
+                            <?php if ($coaching_elegible): ?>
+                                <a href="../gestion_coaching/gestion_coaching_generar_desde_monitoreo.php?monitoreo=<?php echo urlencode($id_registro); ?>" class="btn-corp py-1 px-2 font-size-11" style="border-radius:5px;">
+                                    <span class="fas fa-graduation-cap"></span> Generar Coaching
+                                </a>
+                            <?php else: ?>
+                                <span class="fas fa-check-circle" style="color:#00BF6F;"></span> Ya tiene un paquete de Coaching asociado
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
                     <?php if ($perfil_modulo!='Cliente'): ?>
                     <tr>
                         <th class="align-middle py-0 font-size-11 text-left" style="min-width: 110px;">Indicador</th>
@@ -275,3 +297,4 @@
         oldEmbed.parentNode.replaceChild(newEmbed, oldEmbed);
     }
 </script>
+

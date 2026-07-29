@@ -13,13 +13,29 @@ require_once __DIR__ . '/coaching_datos.php';
  *   - gestion_calidad/gestion_calidad_monitoreo_aceptar.php   (Pendiente -> Aceptado)
  *   - gestion_calidad/gestion_calidad_monitoreo_refutar.php   (-> Refutado-Rechazado / Refutado-Aceptado)
  *
+ * ⚠️ CAMBIO DE COMPORTAMIENTO (27 jul 2026): ya NO crea el paquete de
+ * coaching automáticamente — se decidió que el volumen de monitoreos con
+ * nota < 90 sería demasiado alto para generar un paquete sin
+ * intervención humana. Ahora esta función SOLO:
+ *   1) Concilia paquetes ya creados (los anula si la nota se corrigió a
+ *      >= 90 tras una refutación, o los reemplaza si la nota cambió).
+ *   2) NUNCA crea un paquete nuevo por sí sola.
+ *
+ * La creación real ahora es manual: el analista de Calidad ve un botón
+ * "Generar Coaching" cuando la nota es < 90 (usar
+ * coachingMonitoreoElegibleParaGenerar() para decidir si mostrarlo), y
+ * al confirmar, gestion_coaching_generar_desde_monitoreo.php es quien
+ * llama a crearPaqueteAutomatico().
+ *
+ * Se conserva el mismo nombre de función y la misma firma para no tener
+ * que volver a tocar los 3 archivos reales de Calidad ya integrados —
+ * solo cambió lo que hace por dentro.
+ *
  * Alcance confirmado por negocio: SOLO tb_gestion_calidad_monitoreo.
  * Auditoría y Calibración NO disparan coaching.
  *
  * Contrato de no interferencia: esta función NUNCA debe permitir que un
- * error propio interrumpa el flujo del archivo que la llamó. El monitoreo
- * ya se guardó/aceptó/refutó exitosamente antes de esta llamada; si algo
- * falla aquí, se audita en tb_administrador_log y se continúa.
+ * error propio interrumpa el flujo del archivo que la llamó.
  */
 function evaluarDisparoCoachingAutomatico(
     mysqli $enlace_db,
@@ -28,26 +44,21 @@ function evaluarDisparoCoachingAutomatico(
     string $usu_id_actor
 ): void {
     try {
-        // 1) Guardado parcial / estado no terminal: no hace nada.
-        //    Esto cumple la restricción "no generar coaching automático
-        //    durante un guardado parcial".
         if (!estadoMonitoreoEsTerminal($gcm_estado)) {
             return;
         }
 
-        // 2) Trae el snapshot completo y verificado desde la BD (nunca se
-        //    confía en variables sueltas pasadas desde el request web).
         $snapshot = obtenerSnapshotMonitoreoCalidad($enlace_db, $gcm_id);
         if ($snapshot === null) {
-            registrarErrorCoaching($enlace_db, $gcm_id, 'Monitoreo no encontrado al evaluar disparo de coaching.');
+            registrarErrorCoaching($enlace_db, $gcm_id, 'Monitoreo no encontrado al conciliar coaching.');
             return;
         }
 
         $requiereCoaching = notaRequiereCoaching($snapshot['nota_general']);
         $paqueteVigente    = buscarPaqueteAutomaticoVigente($enlace_db, $gcm_id);
 
-        // 3) Nota ya no amerita coaching pero existe un paquete vigente
-        //    (ej.: la nota subió tras una refutación) -> se anula.
+        // Nota ya no amerita coaching pero existe un paquete vigente
+        // (ej.: la nota subió tras una refutación) -> se anula.
         if (!$requiereCoaching) {
             if ($paqueteVigente !== null) {
                 anularPaquete($enlace_db, $paqueteVigente['gcp_id'], 'Nota corregida a >= 90 tras revisión/refutación, ya no aplica coaching.', 'SISTEMA');
@@ -55,29 +66,50 @@ function evaluarDisparoCoachingAutomatico(
             return;
         }
 
-        // 4) Nota amerita coaching y ya existe un paquete vigente:
-        //    solo se actúa si la nota registrada cambió (regla confirmada
-        //    por negocio: anular + recrear encadenado, no se edita en sitio
-        //    el paquete ya en curso para no perder lo que el supervisor
-        //    haya avanzado).
+        // La nota cambió sobre un paquete YA creado (manualmente, por el
+        // analista): se reemplaza para que el paquete refleje la nota
+        // correcta — esto sigue siendo automático porque es conciliación,
+        // no creación nueva desde cero.
         if ($paqueteVigente !== null) {
             $notaGuardada = (float) $paqueteVigente['gcc2_nota_general'];
             if (!notaCambioTrasRefutacion($notaGuardada, $snapshot['nota_general'])) {
-                return; // idéntico a lo ya existente, no hay nada que hacer
+                return;
             }
-
             anularPaquete($enlace_db, $paqueteVigente['gcp_id'], 'Nota modificada por refutación/conciliación, se reemplaza el paquete.', 'SISTEMA');
             crearPaqueteAutomatico($enlace_db, $snapshot, $paqueteVigente['gcp_id']);
             return;
         }
 
-        // 5) Caso normal: no existe paquete vigente y la nota lo amerita.
-        crearPaqueteAutomatico($enlace_db, $snapshot);
+        // Caso normal (nota < 90, sin paquete todavía): YA NO se crea
+        // aquí. Queda a la espera de que el analista lo genere manual
+        // desde el botón — ver coachingMonitoreoElegibleParaGenerar().
     } catch (Throwable $e) {
-        // Nunca se propaga: se audita y se sigue. El guardado del monitoreo
-        // ya ocurrió y no debe verse afectado por un fallo de este módulo.
         registrarErrorCoaching($enlace_db, $gcm_id, $e->getMessage());
     }
+}
+
+/**
+ * ¿Debe mostrarse el botón "Generar Coaching" para este monitoreo?
+ * true si: nota < 90 y no existe ya un paquete vigente (evita duplicados).
+ *
+ * NOTA (27 jul 2026, decisión de negocio): ya NO se exige que el
+ * monitoreo esté en estado terminal (Aceptado/Refutado-*) — el botón se
+ * muestra igual aunque siga "Pendiente". Es seguro porque la conciliación
+ * automática (evaluarDisparoCoachingAutomatico(), que ya corre en
+ * aceptar.php/refutar.php) ajusta o anula el paquete solo si la nota
+ * cambia después. La pantalla de confirmación sí avisa claramente si el
+ * monitoreo todavía no es terminal, para que quien lo genera lo sepa.
+ */
+function coachingMonitoreoElegibleParaGenerar(mysqli $enlace_db, string $gcm_id): bool
+{
+    $snapshot = obtenerSnapshotMonitoreoCalidad($enlace_db, $gcm_id);
+    if ($snapshot === null) {
+        return false;
+    }
+    if (!notaRequiereCoaching($snapshot['nota_general'])) {
+        return false;
+    }
+    return buscarPaqueteAutomaticoVigente($enlace_db, $gcm_id) === null;
 }
 
 /**
@@ -136,5 +168,3 @@ function obtenerSnapshotMonitoreoCalidad(mysqli $enlace_db, string $gcm_id): ?ar
 // Nota: registrarErrorCoaching() ahora vive en coaching_datos.php (capa
 // compartida), porque coaching_firma.php también necesita auditar
 // incidentes sin depender de este archivo.
-
-

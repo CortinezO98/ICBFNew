@@ -21,6 +21,14 @@ const COACHING_ESTADOS_MONITOREO_TERMINALES = ['Aceptado', 'Refutado-Rechazado',
  */
 const COACHING_UMBRAL_NOTA_GENERAL = 90.0;
 
+/**
+ * Días CALENDARIO por defecto para la fecha límite de un paquete creado
+ * automáticamente desde monitoreo (el supervisor puede tener menos de 5
+ * días si el paquete se crea un viernes, por ejemplo — no se descuentan
+ * fines de semana; ajustar aquí si negocio pide días hábiles).
+ */
+const COACHING_DIAS_LIMITE_AUTOMATICO = 5;
+
 function estadoMonitoreoEsTerminal(string $gcm_estado): bool
 {
     return in_array($gcm_estado, COACHING_ESTADOS_MONITOREO_TERMINALES, true);
@@ -94,6 +102,3 @@ function puedeCerrarse(array $paquete, array $tipo, array $compromisos, ?array $
 
     return $errores;
 }
-
-
-

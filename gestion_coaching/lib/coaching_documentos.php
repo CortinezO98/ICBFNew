@@ -131,11 +131,12 @@ function construirHtmlDocumentoPorTipo(
     array $compromisos,
     ?array $respuesta,
     array $indicadores_adicionales = [],
-    ?array $escalamiento = null
+    ?array $escalamiento = null,
+    ?array $firma = null
 ): string {
     switch ($paquete['gct_codigo']) {
         case 'RETROALIMENTACION':
-            return construirHtmlRetroalimentacion($gcp_id, $paquete, $retro, $compromisos, $respuesta, $indicadores_adicionales);
+            return construirHtmlRetroalimentacion($gcp_id, $paquete, $retro, $compromisos, $respuesta, $indicadores_adicionales, $firma);
         case 'FELICITACION':
         case 'RECONOCIMIENTO':
             return construirHtmlFelicitacion($gcp_id, $paquete);
@@ -144,7 +145,7 @@ function construirHtmlDocumentoPorTipo(
         case 'ESCALAMIENTO_DISCIPLINARIO':
         case 'NO_RENOVACION':
         default:
-            return construirHtmlActaCompromiso($gcp_id, $paquete, $retro, $compromisos, $respuesta, $indicadores_adicionales, $escalamiento);
+            return construirHtmlActaCompromiso($gcp_id, $paquete, $retro, $compromisos, $respuesta, $indicadores_adicionales, $escalamiento, $firma);
     }
 }
 
@@ -168,14 +169,41 @@ function coachingEncabezadoDocumento(string $titulo): string
     </div>';
 }
 
-function coachingBloqueFirmaLegal(string $paquete_id): string
+/**
+ * Bloque de cierre + firma. Si $firma es null (documento generado ANTES
+ * de firmar, versión "para revisión"), muestra las líneas en blanco de
+ * siempre. Si $firma trae datos reales (documento REGENERADO después de
+ * firmar, ver firmarDocumentoCoaching()), imprime la constancia real:
+ * nombre, documento, fecha/hora exacta, y la firma dibujada si existe.
+ */
+function coachingBloqueFirmaLegal(string $paquete_id, ?array $firma = null): string
 {
+    if ($firma) {
+        $fecha_firma = date('d/m/Y H:i:s', strtotime($firma['gcf_registro_fecha']));
+        $bloque_firma = '
+            <p style="margin-top:30px;"><strong>Firmado electrónicamente por:</strong> ' . htmlspecialchars($firma['firmante_nombre'] ?? '') . '</p>
+            <p><strong>Documento de identidad:</strong> ' . htmlspecialchars($firma['gcf_firmante_usuario']) . '</p>
+            <p><strong>Fecha y hora de firma:</strong> ' . htmlspecialchars($fecha_firma) . '</p>';
+
+        if (!empty($firma['gcf_firma_imagen'])) {
+            $bloque_firma .= '
+            <p style="margin-top:10px;"><strong>Firma:</strong></p>
+            <img src="' . htmlspecialchars($firma['gcf_firma_imagen']) . '" style="height:70px; border-bottom:1px solid #6E6E6E;">';
+        } else {
+            $bloque_firma .= '
+            <p style="margin-top:10px; color:#00BF6F;"><strong><span style="font-size:14px;">&#10003;</span> Aceptación electrónica confirmada</strong> (equivalente a firma manuscrita para este proceso interno).</p>';
+        }
+    } else {
+        $bloque_firma = '
+            <p style="margin-top:40px;">Firma: ____________________________________</p>
+            <p>Nombre del colaborador: ____________________________________</p>
+            <p>Fecha y hora cierre de paquete: ____________________________________</p>';
+    }
+
     return '
     <div style="margin-top:30px; page-break-inside:avoid;">
         <p>De conformidad.</p>
-        <p style="margin-top:40px;">Firma: ____________________________________</p>
-        <p>Nombre del colaborador: ____________________________________</p>
-        <p>Fecha y hora cierre de paquete: ____________________________________</p>
+        ' . $bloque_firma . '
         <p style="font-size:9px; color:#6E6E6E; margin-top:15px; text-align:justify;">
             <strong>Nota:</strong> La aprobación de cierre del paquete coaching, certifica que fue usted fue
             notificado, orientado y retroalimentado adecuadamente para dar cumplimiento a sus objetivos y demás
@@ -203,7 +231,7 @@ function coachingListaIndicadores(array $paquete, array $indicadores_adicionales
  * pactados (colaborador), encuesta 1-5 (placeholder hasta que se
  * construya la pantalla de encuesta), firma.
  */
-function construirHtmlRetroalimentacion(string $gcp_id, array $paquete, ?array $retro, array $compromisos, ?array $respuesta, array $indicadores_adicionales = []): string
+function construirHtmlRetroalimentacion(string $gcp_id, array $paquete, ?array $retro, array $compromisos, ?array $respuesta, array $indicadores_adicionales = [], ?array $firma = null): string
 {
     $html = coachingEncabezadoDocumento('FORMATO RETROALIMENTACIÓN — ' . $gcp_id);
 
@@ -243,7 +271,7 @@ function construirHtmlRetroalimentacion(string $gcp_id, array $paquete, ?array $
     <h4 style="background:#4CAF50; color:#FFFFFF; padding:5px 8px;">ENCUESTA DEL ESPACIO (Documenta colaborador)</h4>
     <p style="font-size:10px; color:#6E6E6E;">El agente responde esta encuesta (escala 1 a 5) al momento de firmar el documento — sus respuestas quedan registradas y visibles en el detalle del paquete en la plataforma, no en esta versión impresa generada antes de la firma.</p>';
 
-    $html .= coachingBloqueFirmaLegal($gcp_id);
+    $html .= coachingBloqueFirmaLegal($gcp_id, $firma);
     return $html;
 }
 
@@ -252,7 +280,7 @@ function construirHtmlRetroalimentacion(string $gcp_id, array $paquete, ?array $
  * También sirve de base para Llamado Verbal, Escalamiento Disciplinario
  * y No renovación (que aún no tienen Word propio), ajustando el título.
  */
-function construirHtmlActaCompromiso(string $gcp_id, array $paquete, ?array $retro, array $compromisos, ?array $respuesta, array $indicadores_adicionales = [], ?array $escalamiento = null): string
+function construirHtmlActaCompromiso(string $gcp_id, array $paquete, ?array $retro, array $compromisos, ?array $respuesta, array $indicadores_adicionales = [], ?array $escalamiento = null, ?array $firma = null): string
 {
     $titulo = $paquete['gct_nombre'] ?? 'ACTA DE COMPROMISO';
     $html = coachingEncabezadoDocumento(strtoupper($titulo) . ' — ' . $gcp_id);
@@ -294,7 +322,7 @@ function construirHtmlActaCompromiso(string $gcp_id, array $paquete, ?array $ret
     }
     $html .= '</table>';
 
-    $html .= coachingBloqueFirmaLegal($gcp_id);
+    $html .= coachingBloqueFirmaLegal($gcp_id, $firma);
     return $html;
 }
 

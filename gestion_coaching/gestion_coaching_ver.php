@@ -307,14 +307,14 @@
                 <strong>Próximo paso:</strong> <?php echo validar_output($proximo_paso); ?>
             </div>
             <div class="mt-2 mt-md-0">
-                <?php if ($paquete['gce_codigo'] === 'ASIGNADO' && $perfil_coaching === 'Supervisor'): ?>
+                <?php if ($paquete['gce_codigo'] === 'ASIGNADO' && in_array($perfil_coaching, ['Supervisor', 'Gestor', 'Administrador'], true)): ?>
                     <a href="gestion_coaching_retroalimentacion.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Iniciar retroalimentación</a>
-                <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_SUPERVISOR' && $perfil_coaching === 'Supervisor'): ?>
+                <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_SUPERVISOR' && in_array($perfil_coaching, ['Supervisor', 'Gestor', 'Administrador'], true)): ?>
                     <a href="gestion_coaching_retroalimentacion.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Continuar retroalimentación</a>
                 <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_AGENTE' && $perfil_coaching === 'Agente' && (int) $paquete['gct_requiere_respuesta_agente'] === 1): ?>
                     <a href="gestion_coaching_responder_agente.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Responder</a>
                     <a href="gestion_coaching_refutar.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp-2 px-3 py-1 ml-1 d-inline-block" style="border-radius:5px;">Refutar</a>
-                <?php elseif ($paquete['gce_codigo'] === 'REFUTADO' && $perfil_coaching === 'Supervisor'): ?>
+                <?php elseif ($paquete['gce_codigo'] === 'REFUTADO' && in_array($perfil_coaching, ['Supervisor', 'Gestor', 'Administrador'], true)): ?>
                     <a href="gestion_coaching_revisar_refutacion.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Revisar refutación</a>
                 <?php elseif ($paquete['gce_codigo'] === 'PENDIENTE_AGENTE' && $perfil_coaching === 'Agente'): ?>
                     <a href="gestion_coaching_acuse_recibo.php?reg=<?php echo base64_encode($gcp_id); ?>" class="btn-corp px-3 py-1" style="border-radius:5px;">Acusar recibido</a>
